@@ -16,9 +16,10 @@
 
 ---
 ## MDWiki とは
+* MDWiki のソースコード  
 https://github.com/Dynalon/mdwiki
 
-* このコードの公式説明ページ  
+* MDWiki の公式説明ページ  
 http://dynalon.github.io/mdwiki/#!index.md  
 
 * MDWiki の日本語解説ページ  
