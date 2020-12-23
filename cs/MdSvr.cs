@@ -1,3 +1,4 @@
+
 namespace md_svr
 {
 	class MdSvr
@@ -7,8 +8,6 @@ namespace md_svr
 		static string ms_str_port_num = ((uint)WS_Port.EN_num).ToString();
 
 		// -------------------------------------------------
-		HttpListener m_listener = new HttpListener();
-		List<Task> m_tasks_listener = new List<Task>();
 		bool m_bSignal_shutdown = false;
 		CancellationTokenSource m_cts_shutdown;
 
@@ -18,22 +17,25 @@ namespace md_svr
 		// ------------------------------------------------------------------------------------
 		public async Task Spawn_Start()
 		{
-			m_listener.Prefixes.Add($"http://localhost:{ms_str_port_num}/");
+			HttpListener listener = new HttpListener();
+			List<Task> tasks_context = new List<Task>();
+
+			listener.Prefixes.Add($"http://localhost:{ms_str_port_num}/");
 			MainForm.StdOut($"--- 接続受付開始（ポート: {ms_str_port_num}）\r\n");
 
-			m_listener.Start();
+			listener.Start();
 			using (m_cts_shutdown = new CancellationTokenSource())
 			{
 				while (true)
 				{
 					// GetContextAsync() は、キャンセルトークンをサポートしていない
-					HttpListenerContext context = await m_listener.GetContextAsync();
-					m_tasks_listener.Add(Spawn_Context(context));
+					HttpListenerContext context = await listener.GetContextAsync();
+					tasks_context.Add(Spawn_Context(context));
 					if (m_bSignal_shutdown == true)
 					{
 						m_cts_shutdown.Cancel();
 
-						foreach(Task task in m_tasks_listener)
+						foreach(Task task in tasks_context)
 						{ await task; }
 
 						break;
@@ -41,9 +43,9 @@ namespace md_svr
 				}
 			}
 
-			m_listener.Stop();
+			listener.Stop();
 			await Task.Delay(1000);  // これが無いと例外が発生することがあるような？
-			m_listener.Close();
+			listener.Close();
 		}
 
 		// ------------------------------------------------------------------------------------
