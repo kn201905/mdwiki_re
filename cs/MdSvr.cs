@@ -57,7 +57,6 @@ namespace md_svr
 
 				// この場合、サーバーを終了するメッセージを受け取ったものとする
 				// GetContextAsync() にキャンセルトークンがないための措置
-				// TODO: キャンセルトークンの処理
 				MainForm.StdOut("--- シャットダウン処理開始\r\n");
 				return;
 			}
