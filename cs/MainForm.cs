@@ -22,8 +22,7 @@ namespace md_svr
 			// ---------------------------------------------------------
 			m_Btn_close.Click += OnClk_Close;
 
-			ms_MdSvr = new MdSvr();
-			ms_task_MdSvr = ms_MdSvr.Spawn_Start();
+			ms_task_MdSvr = MdSvr.Spawn_Start();
 		}
 
 		// ------------------------------------------------------------------------------------
