@@ -119,11 +119,8 @@ namespace md_svr
 
 				// -------------------------------------------------
 				// ファイル送信
-				await m_ws.SendAsync(new ArraySegment<byte>(m_ws_buf, 0, 10)
+				await m_ws.SendAsync(new ArraySegment<byte>(m_ws_buf, 0, idx_buf)
 					, WebSocketMessageType.Binary, true, ms_cts_shutdown.Token);
-
-//				await m_ws.SendAsync(new ArraySegment<byte>(m_ws_buf, 0, idx_buf)
-//					, WebSocketMessageType.Binary, true, ms_cts_shutdown.Token);
 			}
 			catch (Exception ex)
 			{
