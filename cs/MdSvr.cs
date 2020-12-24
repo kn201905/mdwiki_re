@@ -1,45 +1,61 @@
+//using System;
+using System.Collections.Generic;
+using System.Text;
+using System.Net;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace md_svr
 {
-	class MdSvr
+	static class MdSvr
 	{
 		// WebSocket 用のポート番号
 		enum WS_Port : uint { EN_num = 3000 }
 		static string ms_str_port_num = ((uint)WS_Port.EN_num).ToString();
 
 		// -------------------------------------------------
-		bool m_bSignal_shutdown = false;
-		CancellationTokenSource m_cts_shutdown;
+		public static CancellationTokenSource ms_cts_shutdown;
 
 		// false: little endian / true: BOM付加 / true: 例外スローあり
-		UnicodeEncoding m_utf16_encoding = new UnicodeEncoding(false, true, true);
+		public static UnicodeEncoding ms_utf16_encoding = new UnicodeEncoding(false, true, true);
 
 		// ------------------------------------------------------------------------------------
-		public async Task Spawn_Start()
+		public static async Task Spawn_Start()
 		{
-			HttpListener listener = new HttpListener();
-			List<Task> tasks_context = new List<Task>();
+			var listener = new HttpListener();
+			var tasks_context = new List<Task>();
 
 			listener.Prefixes.Add($"http://localhost:{ms_str_port_num}/");
 			MainForm.StdOut($"--- 接続受付開始（ポート: {ms_str_port_num}）\r\n");
 
 			listener.Start();
-			using (m_cts_shutdown = new CancellationTokenSource())
+			using (ms_cts_shutdown = new CancellationTokenSource())
 			{
+				// WS_Context の static 変数を設定
+				WS_Context.ms_cts_shutdown = ms_cts_shutdown;
+				WS_Context.ms_utf16_encoding = ms_utf16_encoding;
+
 				while (true)
 				{
 					// GetContextAsync() は、キャンセルトークンをサポートしていない
 					HttpListenerContext context = await listener.GetContextAsync();
-					tasks_context.Add(Spawn_Context(context));
-					if (m_bSignal_shutdown == true)
+					if (context.Request.IsWebSocketRequest == false)
 					{
-						m_cts_shutdown.Cancel();
+						// この場合、サーバーを終了するメッセージを受け取ったものとする
+						// GetContextAsync() にキャンセルトークンがないための措置
+						MainForm.StdOut("--- シャットダウン処理開始\r\n");
+
+						ms_cts_shutdown.Cancel();
 
 						foreach(Task task in tasks_context)
 						{ await task; }
 
 						break;
 					}
+
+					var ws_context = new WS_Context();
+					tasks_context.Add(ws_context.Spawn_Context(context));
 				}
 			}
 
@@ -49,46 +65,10 @@ namespace md_svr
 		}
 
 		// ------------------------------------------------------------------------------------
-		async Task Spawn_Context(HttpListenerContext context)
-		{
-			if (context.Request.IsWebSocketRequest == false)
-			{
-				m_bSignal_shutdown = true;  // シャットダウンシグナル context の終了
-
-				// この場合、サーバーを終了するメッセージを受け取ったものとする
-				// GetContextAsync() にキャンセルトークンがないための措置
-				MainForm.StdOut("--- シャットダウン処理開始\r\n");
-				return;
-			}
-
-			// AcceptWebSocketAsync() は、キャンセルトークンをサポートしていない
-			// 引数： サポートされている WebSocket サブプロトコル
-			HttpListenerWebSocketContext wsc = await context.AcceptWebSocketAsync(null);
-			MainForm.StdOut("--- WebSocket 接続完了\r\n");
-
-			using (WebSocket ws = wsc.WebSocket)
-			{
-				try
-				{
-					var ws_buf = new ArraySegment<byte>(new byte[100]);
-					await ws.ReceiveAsync(ws_buf, m_cts_shutdown.Token);
-
-					await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "接続を終了します", m_cts_shutdown.Token);
-				}
-				catch (OperationCanceledException)
-				{
-					MainForm.StdOut("--- サーバーシャットダウンのシグナルを受信しました\r\n");
-				}
-			}
-
-			MainForm.StdOut("--- WebSocket 切断完了\r\n");
-		}
-
-		// ------------------------------------------------------------------------------------
-		public void SendSignal_Shutdown()
+		public static void SendSignal_Shutdown()
 		{
 			// 現時点では、"CLOSE" の文字列は任意のものでよい
-			var http_content = new StringContent("CLOSE", m_utf16_encoding);
+			var http_content = new StringContent("CLOSE", ms_utf16_encoding);
 			new HttpClient().PostAsync($"http://localhost:{ms_str_port_num}/", http_content);
 		}
 	}
