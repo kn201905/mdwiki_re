@@ -1,0 +1,59 @@
+/* -------------------------- */
+:root {
+	--btn_font_sz: 0.8;
+/*
+	--uvc_bdr_px: 3px;
+	--uvc_utxt_bdr_mgn_left: -3px;
+	--uvc_utxt_pdng: 0.5em 1em;
+	--uvc_bln1_bdr_px_w: 16px;
+	--uvc_bln1_bdr_px_h: 8px;
+	--uvc_bln2_left: 4px;
+*/
+}
+
+/* -------------------------- */
+html {
+	font-family: Meiryo, sans-serif;
+	-webkit-text-size-adjust: 100%;
+	-ms-text-size-adjust: 100%;
+}
+
+body {
+/*	max-width: 600px; */
+
+	margin: 0 auto;
+	padding: 10px 10px 0 10px;
+	font-size: 1rem;
+/*	line-height: 1; */
+}
+
+h2 {
+	margin: 0;
+	padding: 0;
+}
+
+button {
+	font-family: Meiryo, sans-serif;
+	font-size: calc(var(--btn_font_sz) * 1rem);
+
+	box-sizing: border-box;
+	border-radius: 4px;
+	
+	border: 2px solid #22f;
+	background-color: #ddf;
+	color: #22f;
+
+	padding: 0 0.5em;
+/*	transition: 0.3s; */
+}
+button:disabled {
+	border: 2px solid #aaa;
+	background-color: #ddd;
+	color: #aaa;
+}
+
+/* -------------------------- */
+.Log_text_area {
+	width: 100%;
+	height: 30em;
+}
