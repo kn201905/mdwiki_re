@@ -43,6 +43,8 @@ public static void LexFile(Write_WS_Buffer dst_wrt_WS_buf, string file_path)
 		}
 	}
 
+	MainForm.StdOut($"変換後のサイズ : {ms_write_WS_buf.Get_idx_byte_cur().ToString("N0")}\r\n");
+
 	// Write_WS_Buffer で THROW_ERR() がコールされた場合、ID_End が既に書き込まれている
 	// ここに来た場合、Lexing に成功している
 	ms_write_WS_buf.Wrt_ID_param_At(0, ID.Lexed_MD, (byte)Param.Succeeded);
@@ -68,6 +70,8 @@ static void ReadFile_to_MD_buf(string file_path)
 	if (ms_MD_buf[0] != 0xFF || ms_MD_buf[1] != 0xFE)
 	{ throw new Exception($"!!! 指定されたファイルは utf-16le ではありませんでした。"); }
 
+	MainForm.StdOut($"ファイルサイズ : {len_file.ToString("N0")}\r\n");
+
 	// ファイルの最後に \n\0 を書き込んでおく
 	// これがエンドマークとなるため、MD ファイルのサイズを記録しておく必要がなくなっている
 	ms_MD_buf[len_file] = (byte)Chr.LF;
@@ -81,13 +85,8 @@ static void ReadFile_to_MD_buf(string file_path)
 static bool msb_next_is_Div = true;  // ファイル先頭は、必ず Div ブロックとなる
 static bool msb_Dtct_CodeBlk_Mark = false;
 
-[Flags] enum CodeBlk
-{
-	none = 0,
-	inside = 0b01,
-	head = 0b10
-}
-static CodeBlk msf_CodeBlk = CodeBlk.none;
+static bool msb_is_in_CodeBlk = false;
+static bool msb_is_in_QuoteBlk = false;
 
 // psrc : 行頭
 // 戻り値 : 次の行頭
@@ -97,9 +96,25 @@ static char* Consume_Line(char* psrc)
 	// 行頭チェック（#, ```, >）
 	switch (*psrc)
 	{
+	case '>':
+		if (msb_is_in_QuoteBlk == false)
+		{
+			// QuoteBlk に入る
+			ms_write_WS_buf.Wrt_ID(ID.Div_Quote);
+			msb_is_in_QuoteBlk = true;
+
+			msb_next_is_Div = true;
+		}
+		char chr = *++psrc;
+		if (chr == Chr.SP) { chr = *++psrc; }
+
+		// コードブロックのチェック
+		if (chr == '`') { goto case '`'; }
+		break;
+
 	case '#':
 		// コードブロックの場合、先頭の # はそのまま表示する
-		if (msf_CodeBlk.HasFlag(CodeBlk.inside) == true) { break; }
+		if (msb_is_in_CodeBlk == true) { break; }
 
 		// 必ず Head 行として扱う
 		return Consume_Head_Line(psrc);
@@ -112,21 +127,25 @@ static char* Consume_Line(char* psrc)
 			return psrc;
 		}
 		break;
+
+	default:
+		// QuateBlk 解除確認
+		if (msb_is_in_QuoteBlk == true)
+		{
+			ms_write_WS_buf.Wrt_ID(ID.Div_Quote);
+			msb_is_in_QuoteBlk = false;
+
+			msb_next_is_Div = true;
+		}
+		break;
 	}
+	// -----------------------------------------------------
 
 	// code ブロックであった場合の処理
-	if (msf_CodeBlk.HasFlag(CodeBlk.inside) == true)
-	{
-		// CodeBlk の中では、前回の行末での改行処理を行っていないため、ここで改行処理を行う
-		if (msf_CodeBlk.HasFlag(CodeBlk.head) == true)
-		{ msf_CodeBlk = CodeBlk.inside; }
-		else
-		{ ms_write_WS_buf.Wrt_ID(ID.BR); }  // head でない場合、改行処理をする
+	if (msb_is_in_CodeBlk == true)
+	{ return ms_write_WS_buf.Cosume_CodeLine(psrc); }
 
-		return ms_write_WS_buf.Cosume_CodeLine(psrc);
-	}
-
-	// 先頭が空行で会った場合、空行が何行あったとしても Div が一度しか生成されないようにする
+	// 先頭が空行であった場合、空行が何行あったとしても Div が一度しか生成されないようにする
 	if (*psrc == Chr.CR) { msb_next_is_Div = true;  return psrc + 2; }
 	if (*psrc == Chr.LF) { msb_next_is_Div = true;  return psrc + 1; }
 
@@ -169,7 +188,7 @@ static char* Consume_Head_Line(char* psrc)
 	}
 
 	ms_write_WS_buf.Wrt_ID_param(ID.Div_Head, cnt);
-	msb_next_is_Div = true;
+	msb_next_is_Div = false;
 
 	psrc = ms_write_WS_buf.Consume_NormalLine(psrc);
 	if (*psrc == Chr.CR)
@@ -199,19 +218,21 @@ static char* Consume_CodeBlk_Mark(char* psrc)
 	case Chr.LF:
 		msb_Dtct_CodeBlk_Mark = true;
 
-		if (msf_CodeBlk.HasFlag(CodeBlk.inside) == false)
+		if (msb_is_in_CodeBlk == false)
 		{
 			// CodeBlk に入る
 			ms_write_WS_buf.Wrt_ID(ID.Div_Code);
-			msf_CodeBlk = CodeBlk.inside | CodeBlk.head;
+			msb_is_in_CodeBlk = true;
 			msb_next_is_Div = false;
 		}
 		else
 		{
 			// CodeBlk から出る
-			msf_CodeBlk = CodeBlk.none;
+			ms_write_WS_buf.Wrt_ID(ID.Div_Code);
+			msb_is_in_CodeBlk = false;
 			msb_next_is_Div = true;
 		}
+
 		return psrc + 4;
 	}
 
@@ -221,6 +242,7 @@ static char* Consume_CodeBlk_Mark(char* psrc)
 }
 
 // ------------------------------------------------------------------------------------
+
 
 }  // static unsafe class Lexer
 }  // namespace md_svr
