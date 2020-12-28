@@ -1,4 +1,4 @@
-// ТшФ╘В╠УоНь
+// хоЪчХкуБошинхоЪ
 
 const g_e_body = document.body;
 
