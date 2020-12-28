@@ -46,9 +46,15 @@ const g_WS = new function() {
 			// 現在は受け取ったメッセージをログに表示するのみ
 			g_Read_Buf.SetArrayBuffer(event.data);
 
+			let id = g_Read_Buf.Consume_NextID();
+			if (id == ID_Lexed_MD) {
+				g_DomTree.BuildTree(g_e_DomTreeArea, g_Read_Buf);
+				return;
+			}
+
 			while (true) {
-				let id = g_Read_Buf.Read_ID();
-				if (g_Read_Buf_to_Log.Consume(id) == false) { break; }
+				if (g_Read_Buf_to_Log.Show(id) == false) { break; }
+				id = g_Read_Buf.Consume_NextID();
 			}
 		};
 	};
@@ -175,5 +181,7 @@ const g_pnl_Log = new function() {
 		e_txt_area.scrollTop = e_txt_area.scrollHeight;
 	};
 };
+
+const g_e_DomTreeArea = g_e_body.Add_Div();
 
 g_GUI.Update(STT_Null);
