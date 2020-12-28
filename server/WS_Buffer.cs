@@ -16,7 +16,7 @@ byte m_param_cur = 0;
 string m_text_cur = null;
 
 // ------------------------------------------------------------------------------------
-public Read_WS_Buf(byte[] buf)
+internal Read_WS_Buf(byte[] buf)
 {
 	m_buf = buf;
 }
@@ -73,7 +73,7 @@ public void Renew(int len_bytes)
 
 /////////////////////////////////////////////////////////////////////////////////////
 
-class Write_WS_Buffer
+internal class Write_WS_Buffer
 {
 byte[] m_buf;
 
@@ -90,6 +90,10 @@ public Write_WS_Buffer(byte[] buf)
 	m_idx_byte = 0;
 	m_rem_ui16 = (buf.Length >> 1) - 2;  // エラー報告と、ID.End を必ず書き込めるようにするため
 }
+
+// ------------------------------------------------------------------------------------
+public byte[] Get_buf() => m_buf;
+public int Get_idx_byte_cur() => m_idx_byte;
 
 // ------------------------------------------------------------------------------------
 public void Flush()
@@ -134,8 +138,6 @@ public void Wrt_ID_param(ID id, byte param)
 
 // ------------------------------------------------------------------------------------
 // Text では、ID, param の書き込みが後にずれる
-public int Get_idx_byte_cur() => m_idx_byte;
-
 public void Skip_Wrt_ID()
 {
 	m_idx_byte += 2;
@@ -306,7 +308,7 @@ public unsafe void THROW_ERR(char* psrc, string err_msg)
 // 戻り値 : 次の行頭
 public unsafe char* Cosume_CodeLine(char* psrc)
 {
-	// 先頭が改行（空行）であった場合、ID.BR のみ書き込んでリターンする
+	// 先頭が改行（空行）であった場合、改行のみしてリターンする
 	if (*psrc == Chr.CR) { this.Wrt_ID(ID.BR);  return psrc + 2; }
 	if (*psrc == Chr.LF) { this.Wrt_ID(ID.BR);  return psrc + 1; }
 
@@ -348,7 +350,6 @@ public unsafe char* Cosume_CodeLine(char* psrc)
 
 			*pdst++ = chr;
 		}
-		// TODO: 行末の無駄な空白は取り除く
 
 		*pdst_at_pos_text_len = (char)((pdst - pdst_at_pos_text_len) - 1);  // 文字数の書き込み
 		m_idx_byte = (int)(((byte*)pdst) - pdst_top);
@@ -359,6 +360,8 @@ public unsafe char* Cosume_CodeLine(char* psrc)
 	// 今のところは、ERR_OVERFLOW 以外のエラーは起きないはず
 	if (Err_ID != ID.Undefined) { this.THROW_ERR(psrc, Err_msg); }
 
+	// CodeBlk は必ず改行コードで終える
+	this.Wrt_ID(ID.BR);
 	return psrc;
 }
 
@@ -384,6 +387,15 @@ public unsafe char* Consume_NormalLine(char* psrc)
 		char* ptr_at_pos_text_len = null;
 		bool b_on_escaped = false;
 
+		void CLOSE_TEXT_SEC_IF_OPEN()
+		{
+			if (ptr_at_pos_text_len != null)
+			{
+				*ptr_at_pos_text_len = (char)(pdst - ptr_at_pos_text_len - 1);
+				ptr_at_pos_text_len = null;
+			}
+		}
+
 		while (true)  // 行末 or エラー発生時まで処理を進める
 		{
 			if (pdst >= pTmnt_dst)
@@ -394,42 +406,63 @@ public unsafe char* Consume_NormalLine(char* psrc)
 
 			char chr = *psrc;
 
-			// 行末が来たら処理を終了する。ID.BR の処理は Lexer の方で行う
+			// 行末処理で、改行が必要かどうかの判断を行うため、psrc は最初の行末コードの部分でリターンさせる
 			if (chr == Chr.CR || chr == Chr.LF) { break; }
 
-			// chr は、何らかの表示文字
-			psrc++;
+			//  -------------------------------------------------
+			// chr は、何らかの表示文字。以降は、text セクションとして処理
 
-			// 以降は、text セクションとして処理
+			// エスケープ文字の処理
+			if (b_on_escaped == true)
+			{
+				b_on_escaped = false;  // エスケープ解除
+			}
+			else
+			{
+				// 以下、特殊 inline 文字の処理を順次行う
+				switch (chr)
+				{
+				case '\\':
+					b_on_escaped = true;
+					psrc++;
+					continue;  // '\' は書き込まない（*pdst++ = chr; をしない）
+
+				case '<':
+					// <br>, <BR> の検査
+					ulong ui64str = *(ulong*)psrc;
+					if (ui64str == 0x003e_0072_0062_003c || ui64str == 0x003e_0052_0042_003c)
+					{
+						CLOSE_TEXT_SEC_IF_OPEN();
+
+						*pdst++ = (char)ID.BR;
+						psrc += 4;
+						continue;
+					}
+					break;
+				}
+			}
+
 			if (ptr_at_pos_text_len == null)
 			{
+				// テキストセクションを開く
 				*pdst = (char)ID.Text;
 				ptr_at_pos_text_len = pdst + 1;
 				pdst += 2;
 			}
 
+			psrc++;
+			
 			if (chr == Chr.TAB)
 			{
 				for (int i = Chr.PCS_Tab; i > 0; --i) { *pdst++ = Chr.SP; }
 				continue;
 			}
 
-			// エスケープ文字の処理
-			if (chr == '\\')
-			{
-				if (b_on_escaped == false)
-				{ b_on_escaped = true;  continue; }
-
-				b_on_escaped = false;  // エスケープ解除
-			}
-
 			*pdst++ = chr;
-		}
+		} // while
 
-		// text セクションの処理中であれば、テキストセクションを閉じる
 		// text セクションが 0 文字となることもある（エラー時など）
-		if (ptr_at_pos_text_len != null)
-		{ *ptr_at_pos_text_len = (char)(pdst - ptr_at_pos_text_len - 1); }
+		CLOSE_TEXT_SEC_IF_OPEN();
 
 		m_idx_byte = (int)(((byte*)pdst) - pdst_top);
 		m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
