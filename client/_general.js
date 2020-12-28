@@ -1,4 +1,4 @@
-// 定番の設定
+// čÔĚŽě
 
 const g_e_body = document.body;
 
@@ -11,6 +11,13 @@ Element.prototype.Add_Element = function(tag) {
 
 Element.prototype.Add_Div = function() {
 	const e_div = document.createElement('div');
+	this.appendChild(e_div);
+	return e_div;
+};
+
+Element.prototype.Add_DivTxt = function(txt) {
+	const e_div = document.createElement('div');
+	e_div.textContent = txt;
 	this.appendChild(e_div);
 	return e_div;
 };
@@ -50,6 +57,10 @@ Element.prototype.Add_TxtNode = function(txt) {
 	return e_txt_node;
 };
 
+Element.prototype.Add_BR = function() {
+	this.appendChild(document.createElement('br'));
+};
+
 Element.prototype.Add_FlexStg = function() {
 	const e_div = document.createElement('div');
 	e_div.style.display = 'flex';
@@ -58,3 +69,10 @@ Element.prototype.Add_FlexStg = function() {
 	return e_div;
 };
 
+// -----------------------------------------------------------------------
+
+Element.prototype.Remove_All = function () {
+	// TODO: 単に textContent をクリアするだけで良かったはず？？後で調べること。
+	while (this.firstChild) { this.removeChild(this.firstChild); }
+	return this;
+};
