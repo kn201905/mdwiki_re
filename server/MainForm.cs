@@ -1,10 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
+#define ACTIVATE_SERVER
+#define CREATE_TEST_LEXED_CODE
+
+using System;
 using System.Drawing;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -13,9 +11,10 @@ using System.Windows.Forms;
 // この非同期メソッドには 'await' 演算子がないため、同期的に実行されます。
 #pragma warning disable CS1998
 
+
 namespace md_svr
 {
-	public partial class MainForm : Form
+	internal partial class MainForm : Form
 	{
 		// リソースの節約
 		static public Font ms_meiryo_Ke_P_9pt = null;
@@ -26,6 +25,13 @@ namespace md_svr
 
 		// ---------------------------------------------------------
 		static Task ms_task_MdSvr;
+
+
+		// ＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜
+#if CREATE_TEST_LEXED_CODE
+		static byte[] ms_DBG_ws_buf = new byte[100 * 1024];
+		public static Write_WS_Buffer ms_DBG_write_WS_buf = new Write_WS_Buffer(ms_DBG_ws_buf);
+#endif
 
 		// ------------------------------------------------------------------------------------
 		public MainForm()
@@ -47,7 +53,36 @@ namespace md_svr
 			// ---------------------------------------------------------
 			m_Btn_close.Click += OnClk_Close;
 
+		// ＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜
+#if CREATE_TEST_LEXED_CODE
+			try
+			{
+				Lexer.LexFile(ms_DBG_write_WS_buf, "md_root/index.md");
+				StdOut("--- Lexing 処理完了\r\n");
+
+				string ret_str = ms_DBG_write_WS_buf.Simplify_Buf();
+				if (ret_str == null)
+				{
+					StdOut("--- Simplify_Buf 処理完了\r\n");
+				}
+				else
+				{
+					StdOut($"!!! Simplify_Buf でエラー検出 : {ret_str}\r\n");
+				}
+			}
+			catch(Exception ex)
+			{
+				// 例外が発生した場合でも、ms_DBG_write_WS_buf には、エラーが発生した場所までの
+				// Lexing 結果が入っている
+				StdOut($"!!! 例外を補足しました : {ex.Message}\r\n");
+				return;
+			}
+
+			DBG_WS_Buffer.Show_WS_buf(ms_RBox_stdout, ms_DBG_ws_buf, ms_DBG_write_WS_buf.Get_idx_byte_cur());
+#endif
+#if ACTIVATE_SERVER
 			ms_task_MdSvr = MdSvr.Spawn_Start();
+#endif
 		}
 
 		// ------------------------------------------------------------------------------------
@@ -62,23 +97,24 @@ namespace md_svr
 		// ------------------------------------------------------------------------------------
 		async void OnClk_Close(object sender, EventArgs e)
 		{
+#if ACTIVATE_SERVER
 			m_Btn_close.Enabled = false;
 			MainForm.StdOut("--- サーバーのシャットダウンシグナルを送信しました\r\n");
 
 			MdSvr.SendSignal_Shutdown();
 			await ms_task_MdSvr;
-
+#endif
 			this.Close();  // MainForm の Close
 		}
 
 		// ------------------------------------------------------------------------------------
-		private void OnClk_clear(object sender, EventArgs e)
+		private void OnClk_ClearLog(object sender, EventArgs e)
 		{
 			ms_RBox_stdout.Clear();
 		}
 
 		// ------------------------------------------------------------------------------------
-		private void button1_Click(object sender, EventArgs e)
+		private void OnClk_Test(object sender, EventArgs e)
 		{
 		}
 
