@@ -1,3 +1,5 @@
+#define CREATE_TEST_LEXED_CODE
+
 using System;
 using System.IO;
 using System.Text;
@@ -11,134 +13,146 @@ namespace md_svr
 	class WS_Context
 	{
 		// -------------------------------------------------
-		// MdSvr.Spawn_Start() ‚É‚Äİ’è‚³‚ê‚é
+		// MdSvr.Spawn_Start() ã«ã¦è¨­å®šã•ã‚Œã‚‹
 		public static CancellationTokenSource ms_cts_shutdown;
 		public static UnicodeEncoding ms_utf16_encoding;
 
 		// -------------------------------------------------
 		const int EN_bytes_buf = 100 * 1024;
-		byte[] m_ws_buf = new byte[EN_bytes_buf];  // 100 kbytesi‘—M—p‚É‚±‚ÌƒTƒCƒY‚ğl‚¦‚Ä‚¢‚é‚¯‚ÇA‚±‚±‚Ü‚Å‚Í•s•K—vHHj
+		byte[] m_ws_buf = new byte[EN_bytes_buf];  // 100 kbytesï¼ˆé€ä¿¡ç”¨ã«ã“ã®ã‚µã‚¤ã‚ºã‚’è€ƒãˆã¦ã„ã‚‹ã‘ã©ã€ã“ã“ã¾ã§ã¯ä¸å¿…è¦ï¼Ÿï¼Ÿï¼‰
 
-		Read_Buffer m_read_buf;
-		Write_Buffer m_write_buf;
+		Read_WS_Buf m_read_WS_buf;
+		Write_WS_Buffer m_write_WS_buf;
 
+		string m_str_root_dir = "md_root/";
 		string m_str_cur_dir = "md_root/";
 		WebSocket m_ws;
 
 		public WS_Context()
 		{
-			m_read_buf = new Read_Buffer(m_ws_buf);
-			m_write_buf = new Write_Buffer(m_ws_buf);
+			m_read_WS_buf = new Read_WS_Buf(m_ws_buf);
+			m_write_WS_buf = new Write_WS_Buffer(m_ws_buf);
 		}
 
 		// ------------------------------------------------------------------------------------
 		public async Task Spawn_Context(HttpListenerContext context)
 		{
-			// AcceptWebSocketAsync() ‚ÍAƒLƒƒƒ“ƒZƒ‹ƒg[ƒNƒ“‚ğƒTƒ|[ƒg‚µ‚Ä‚¢‚È‚¢
-			// ˆø”F ƒTƒ|[ƒg‚³‚ê‚Ä‚¢‚é WebSocket ƒTƒuƒvƒƒgƒRƒ‹
+			// AcceptWebSocketAsync() ã¯ã€ã‚­ãƒ£ãƒ³ã‚»ãƒ«ãƒˆãƒ¼ã‚¯ãƒ³ã‚’ã‚µãƒãƒ¼ãƒˆã—ã¦ã„ãªã„
+			// å¼•æ•°ï¼š ã‚µãƒãƒ¼ãƒˆã•ã‚Œã¦ã„ã‚‹ WebSocket ã‚µãƒ–ãƒ—ãƒ­ãƒˆã‚³ãƒ«
 			HttpListenerWebSocketContext wsc = await context.AcceptWebSocketAsync(null);
-			MainForm.StdOut("--- WebSocket Ú‘±Š®—¹\r\n");
+			MainForm.StdOut("--- WebSocket æ¥ç¶šå®Œäº†\r\n");
 
 			var seg_for_recv = new ArraySegment<byte>(m_ws_buf);
 			using (m_ws = wsc.WebSocket)
 			{
 				try
 				{
-					// ‚Ü‚¸‚Íƒ‹[ƒgƒtƒHƒ‹ƒ_‚Ìƒtƒ@ƒCƒ‹î•ñ‚ğ‘—M‚µ‚Ä‚¨‚­
+					// ï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œï¼œ
+#if CREATE_TEST_LEXED_CODE
+					// Test Lexed Code ã‚’é€ä¿¡ã™ã‚‹
+					Write_WS_Buffer write_ws_buf = MainForm.ms_DBG_write_WS_buf;
+					await m_ws.SendAsync(
+						new ArraySegment<byte>(write_ws_buf.Get_buf(), 0, write_ws_buf.Get_idx_byte_cur())
+						, WebSocketMessageType.Binary, true, ms_cts_shutdown.Token);
+#else
+					// ã¾ãšã¯ãƒ«ãƒ¼ãƒˆãƒ•ã‚©ãƒ«ãƒ€ã®ãƒ•ã‚¡ã‚¤ãƒ«æƒ…å ±ã‚’é€ä¿¡ã—ã¦ãŠã
 					if (await SendFileNames_CurDir() == false)
-					{ throw new Exception("Ú‘±ŠJn’¼Œã‚Ì‰Šú‰»’ÊM‚É¸”s‚µ‚Ü‚µ‚½"); }
-
+					{ throw new Exception("æ¥ç¶šé–‹å§‹ç›´å¾Œã®åˆæœŸåŒ–é€šä¿¡ã«å¤±æ•—ã—ã¾ã—ãŸ"); }
+#endif
 					while (true)
 					{
 						WebSocketReceiveResult rslt = await m_ws.ReceiveAsync(seg_for_recv, ms_cts_shutdown.Token);
 						if (rslt.EndOfMessage == false)
 						{
-							MainForm.StdOut("--- •s³‚È‘å‚«‚³‚Ìƒf[ƒ^‚ğóM‚µ‚Ü‚µ‚½BƒNƒ‰ƒCƒAƒ“ƒg‚ğØ’f‚µ‚Ü‚·\r\n");
+							MainForm.StdOut("--- ä¸æ­£ãªå¤§ãã•ã®ãƒ‡ãƒ¼ã‚¿ã‚’å—ä¿¡ã—ã¾ã—ãŸã€‚ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆã‚’åˆ‡æ–­ã—ã¾ã™\r\n");
 							break;
 						}
 						if (m_ws.State == WebSocketState.CloseReceived)
 						{
-							MainForm.StdOut("--- ƒNƒ‰ƒCƒAƒ“ƒg‚ªÚ‘±‚ğ Close ‚µ‚Ü‚µ‚½\r\n");
+							MainForm.StdOut("--- ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆãŒæ¥ç¶šã‚’ Close ã—ã¾ã—ãŸ\r\n");
 							break;
 						}
+
+						// ä»Šã¯ã€index.md ã®ã¿ã‚’è§£æã™ã‚‹ã‚ˆã†ã«ã—ã¦ã„ã‚‹
+//						string ret_str = Lexer.LexFile(m_write_WS_buf, "md_root/index.md");
 
 						string str_recv = ms_utf16_encoding.GetString(m_ws_buf, 0, rslt.Count);
 						MainForm.StdOut(str_recv);
 					}
 
-					await m_ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "Ú‘±‚ğI—¹‚µ‚Ü‚·", ms_cts_shutdown.Token);
+					await m_ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "æ¥ç¶šã‚’çµ‚äº†ã—ã¾ã™", ms_cts_shutdown.Token);
 				}
 				catch (OperationCanceledException)
 				{
-					MainForm.StdOut("--- ƒT[ƒo[ƒVƒƒƒbƒgƒ_ƒEƒ“‚ÌƒVƒOƒiƒ‹‚ğóM‚µ‚Ü‚µ‚½\r\n");
+					MainForm.StdOut("--- ã‚µãƒ¼ãƒãƒ¼ã‚·ãƒ£ãƒƒãƒˆãƒ€ã‚¦ãƒ³ã®ã‚·ã‚°ãƒŠãƒ«ã‚’å—ä¿¡ã—ã¾ã—ãŸ\r\n");
 				}
 				catch (WebSocketException ex)
 				{
-					MainForm.StdOut($"!!! —áŠO”­‚ğ•â‘«‚µ‚Ü‚µ‚½ WebSoketErrorCode : {ex.WebSocketErrorCode.ToString()}\r\n");
+					MainForm.StdOut($"!!! ä¾‹å¤–ç™ºã‚’è£œè¶³ã—ã¾ã—ãŸ WebSoketErrorCode : {ex.WebSocketErrorCode.ToString()}\r\n");
 					MainForm.StdOut($"    {ex.ToString()}\r\n");
 				}
 				catch (Exception ex)
 				{
-					MainForm.StdOut($"!!! —áŠO‚ğ•â‘«‚µ‚Ü‚µ‚½ : {ex.ToString()}\r\n");
+					MainForm.StdOut($"!!! ä¾‹å¤–ã‚’è£œè¶³ã—ã¾ã—ãŸ : {ex.ToString()}\r\n");
 				}
 			}
 
-			MainForm.StdOut("--- WebSocket Ø’fŠ®—¹\r\n");
+			MainForm.StdOut("--- WebSocket åˆ‡æ–­å®Œäº†\r\n");
 		}
 
 		// ------------------------------------------------------------------------------------
-		// ‘—M‚É¸”s‚µ‚½ê‡Afalse ‚ª•Ô‚³‚ê‚é
+		// é€ä¿¡ã«å¤±æ•—ã—ãŸå ´åˆã€false ãŒè¿”ã•ã‚Œã‚‹
 		async Task<bool> SendFileNames_CurDir()
 		{
-			m_write_buf.Flush();
+			m_write_WS_buf.Flush();
 
 			try
 			{
 				// -------------------------------------------------
-				// ƒfƒBƒŒƒNƒgƒŠ–¼‚Ìˆ—
+				// ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒªåã®å‡¦ç†
 				{
-					int idx_byte_AtDNames = m_write_buf.Get_idx_byte_cur();
-					m_write_buf.Skip_Wrt_ID();
+					int idx_byte_AtDNames = m_write_WS_buf.Get_idx_byte_cur();
+					m_write_WS_buf.Skip_Wrt_ID();
 
 					var dirs = Directory.EnumerateDirectories(m_str_cur_dir);
 					int cnt = 0;
 					foreach(string dname in dirs)
 					{
-						m_write_buf.Wrt_PFName(dname);
+						m_write_WS_buf.Wrt_PFName(dname);
 						cnt++;
 					}
-					if (cnt > 255) { throw new Exception("ƒfƒBƒŒƒNƒgƒŠ‚ÌŒÂ”‚ª 255 ŒÂ‚ğ’´‚¦‚Ä‚¢‚Ü‚·B"); }
+					if (cnt > 255) { throw new Exception("ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒªã®å€‹æ•°ãŒ 255 å€‹ã‚’è¶…ãˆã¦ã„ã¾ã™ã€‚"); }
 
-					m_write_buf.Wrt_ID_param_At(idx_byte_AtDNames, (byte)ID.Directory_Names, (byte)cnt);
+					m_write_WS_buf.Wrt_ID_param_At(idx_byte_AtDNames, ID.Directory_Names, (byte)cnt);
 				}
 
 				// -------------------------------------------------
-				// ƒtƒ@ƒCƒ‹–¼‚Ìˆ—
+				// ãƒ•ã‚¡ã‚¤ãƒ«åã®å‡¦ç†
 				{
-					int idx_byte_AtFName = m_write_buf.Get_idx_byte_cur();
-					m_write_buf.Skip_Wrt_ID();
+					int idx_byte_AtFName = m_write_WS_buf.Get_idx_byte_cur();
+					m_write_WS_buf.Skip_Wrt_ID();
 
 					var files = Directory.EnumerateFiles(m_str_cur_dir);
 					int cnt = 0;
 					foreach(string fname in files)
 					{
-						m_write_buf.Wrt_PFName(fname);
+						m_write_WS_buf.Wrt_PFName(fname);
 						cnt++;
 					}
-					if (cnt > 255) { throw new Exception("ƒtƒ@ƒCƒ‹‚ÌŒÂ”‚ª 255 ŒÂ‚ğ’´‚¦‚Ä‚¢‚Ü‚·B"); }
-					m_write_buf.Wrt_ID_param_At(idx_byte_AtFName, (byte)ID.File_Names, (byte)cnt);
+					if (cnt > 255) { throw new Exception("ãƒ•ã‚¡ã‚¤ãƒ«ã®å€‹æ•°ãŒ 255 å€‹ã‚’è¶…ãˆã¦ã„ã¾ã™ã€‚"); }
+					m_write_WS_buf.Wrt_ID_param_At(idx_byte_AtFName, ID.File_Names, (byte)cnt);
 				}
 
 				// -------------------------------------------------
-				// ƒtƒ@ƒCƒ‹‘—M
-				m_write_buf.Wrt_ID((byte)ID.End);
+				// ãƒ•ã‚¡ã‚¤ãƒ«é€ä¿¡
+				m_write_WS_buf.Wrt_ID_End();
 
-				await m_ws.SendAsync(new ArraySegment<byte>(m_ws_buf, 0, m_write_buf.Get_idx_byte_cur())
+				await m_ws.SendAsync(new ArraySegment<byte>(m_ws_buf, 0, m_write_WS_buf.Get_idx_byte_cur())
 					, WebSocketMessageType.Binary, true, ms_cts_shutdown.Token);
 			}
 			catch (Exception ex)
 			{
-				MainForm.StdOut($"!!! —áŠO‚ğ•â‘«‚µ‚Ü‚µ‚½ : {ex.ToString()}\r\n");
+				MainForm.StdOut($"!!! ä¾‹å¤–ã‚’è£œè¶³ã—ã¾ã—ãŸ : {ex.ToString()}\r\n");
 				return false;
 			}
 
@@ -146,8 +160,8 @@ namespace md_svr
 		}
 
 		// ------------------------------------------------------------------------------------
-		// ƒfƒoƒbƒO—p
-		// idx: pcs ‚ÌˆÊ’u
+		// ãƒ‡ãƒãƒƒã‚°ç”¨
+		// idx: pcs ã®ä½ç½®
 		(int, string) ReadPStr_frm_WSBuf(int idx_buf)
 		{
 			int pcs = m_ws_buf[idx_buf] + m_ws_buf[idx_buf + 1] * 256;
