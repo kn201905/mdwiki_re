@@ -1,6 +1,6 @@
 'use strict';
 
-// g‚¢•û
+// ä½¿ã„æ–¹
 // const str = g_utf16_to_str.decode(typed_ary_uint16);
 const g_utf16_to_str = new TextDecoder('utf-16');
 
@@ -20,7 +20,7 @@ const g_Read_Buf = new function() {
 		m_len_uint16buf = m_u16_buf.length;
 	};
 
-	this.Read_ID = () => {
+	this.Consume_NextID = () => {
 		if (m_idx == m_len_uint16buf) { return null; }
 
 		const val_uint16 = m_u16_buf[m_idx++];
@@ -32,7 +32,7 @@ const g_Read_Buf = new function() {
 			if (m_idx + 1 + pcs > m_len_uint16buf)
 			{ throw new Error('!!! g_utf16_to_str.Read_ID() : m_idx + pcs > m_len_uint16buf'); }
 
-			// ‘æ‚Qˆø”‚ÍƒoƒCƒgA‘æ‚Rˆø”‚Í u16 ‚Åw’è‚·‚é‚±‚Æ
+			// ç¬¬ï¼’å¼•æ•°ã¯ãƒã‚¤ãƒˆã€ç¬¬ï¼“å¼•æ•°ã¯ u16 ã§æŒ‡å®šã™ã‚‹ã“ã¨
 			m_text_cur = g_utf16_to_str.decode(new Uint16Array(m_ary_buffer, (m_idx + 1) * 2, pcs));
 			m_idx += 1 + pcs;
 		}
@@ -64,7 +64,7 @@ const g_Read_Buf = new function() {
 			if (peek_idx + 1 + pcs > m_len_uint16buf)
 			{ throw new Error('!!! g_utf16_to_str.Read_ID() : peek_idx + pcs > m_len_uint16buf'); }
 
-			// ‘æ‚Qˆø”‚ÍƒoƒCƒgA‘æ‚Rˆø”‚Í u16 ‚Åw’è‚·‚é‚±‚Æ
+			// ç¬¬ï¼’å¼•æ•°ã¯ãƒã‚¤ãƒˆã€ç¬¬ï¼“å¼•æ•°ã¯ u16 ã§æŒ‡å®šã™ã‚‹ã“ã¨
 			m_peek_text_cur
 				= g_utf16_to_str.decode(new Uint16Array(m_ary_buffer, (peek_idx + 1) * 2, pcs));
 			peek_idx += 1 + pcs;
@@ -83,7 +83,7 @@ const g_Read_Buf = new function() {
 /////////////////////////////////////////////////////////////////////////////
 
 const g_Write_Buf = new function() {
-	const EN_BufSize = 2048;  // ‘—M—p‚Å‚ ‚é‚½‚ßAƒoƒbƒtƒ@‚ÌƒTƒCƒY‚Í¬‚³‚­‚Ä—Ç‚¢
+	const EN_BufSize = 2048;  // é€ä¿¡ç”¨ã§ã‚ã‚‹ãŸã‚ã€ãƒãƒƒãƒ•ã‚¡ã®ã‚µã‚¤ã‚ºã¯å°ã•ãã¦è‰¯ã„
 
 	const m_ary_buffer = new ArrayBuffer(EN_BufSize);;
 	const m_u16_full_buf = new Uint16Array(m_ary_buffer);
@@ -100,11 +100,11 @@ const g_Write_Buf = new function() {
 
 	this.Wrt_PStr = (src_str) => {
 		const len_str = src_str.length;
-		if (m_idx + len_str > m_len_uint16buf - 10) {  // 10 ‚Íƒ}[ƒWƒ“
-			throw new Error('!!! WriteBuffer.Wrt_PStr() : ƒoƒbƒtƒ@ƒTƒCƒY‚ª•s‘«‚µ‚Ä‚¢‚Ü‚·B');
+		if (m_idx + len_str > m_len_uint16buf - 10) {  // 10 ã¯ãƒãƒ¼ã‚¸ãƒ³
+			throw new Error('!!! WriteBuffer.Wrt_PStr() : ãƒãƒƒãƒ•ã‚¡ã‚µã‚¤ã‚ºãŒä¸è¶³ã—ã¦ã„ã¾ã™ã€‚');
 		}
 		if (len_str > 0xffff) {
-			throw new Error('!!! WriteBuffer.Wrt_PStr() : ‘‚«‚İ•¶š”‚ª‘å‚«‚·‚¬‚Ü‚·B');
+			throw new Error('!!! WriteBuffer.Wrt_PStr() : æ›¸ãè¾¼ã¿æ–‡å­—æ•°ãŒå¤§ãã™ãã¾ã™ã€‚');
 		}
 
 		m_u16_full_buf[m_idx] = ID_Text;
@@ -118,7 +118,7 @@ const g_Write_Buf = new function() {
 	};
 
 	this.Get_u16ary_Cur = () => {
-		// ‘æ‚Qˆø”‚ÍƒoƒCƒgA‘æ‚Rˆø”‚Í u16 ‚Åw’è‚·‚é‚±‚Æ
+		// ç¬¬ï¼’å¼•æ•°ã¯ãƒã‚¤ãƒˆã€ç¬¬ï¼“å¼•æ•°ã¯ u16 ã§æŒ‡å®šã™ã‚‹ã“ã¨
 		return new Uint16Array(m_ary_buffer, 0, m_idx);
 	};
 
