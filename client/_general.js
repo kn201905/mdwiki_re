@@ -1,4 +1,4 @@
-// čÔĚŽě
+// 定形コード
 
 const g_e_body = document.body;
 
