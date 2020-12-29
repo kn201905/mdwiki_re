@@ -7,6 +7,7 @@ const g_utf16_to_str = new TextDecoder('utf-16');
 const g_Read_Buf = new function() {
 	let m_ary_buffer = null;
 	let m_u16_buf = null;
+
 	let m_idx = 0;
 	let m_len_uint16buf = 0;
 
@@ -20,6 +21,8 @@ const g_Read_Buf = new function() {
 		m_len_uint16buf = m_u16_buf.length;
 	};
 
+	this.Reset_idx = () => { m_idx = 0;}
+
 	this.Consume_NextID = () => {
 		if (m_idx == m_len_uint16buf) { return null; }
 
@@ -27,14 +30,25 @@ const g_Read_Buf = new function() {
 		let val_id = val_uint16 & 0xff;
 		m_param_cur = val_uint16 >>> 8;
 
-		if (val_id == ID_Text) {
-			const pcs = m_u16_buf[m_idx];
-			if (m_idx + 1 + pcs > m_len_uint16buf)
-			{ throw new Error('!!! g_utf16_to_str.Read_ID() : m_idx + pcs > m_len_uint16buf'); }
+		// テキストセクションの処理
+		if (val_id & ID_Text) {
+			if (m_param_cur > 0) {
+				if (m_len_uint16buf < m_idx + m_param_cur)
+				{ throw new Error('!!! g_utf16_to_str.Read_ID() : バッファオーバーフロー'); }
 
-			// 第２引数はバイト、第３引数は u16 で指定すること
-			m_text_cur = g_utf16_to_str.decode(new Uint16Array(m_ary_buffer, (m_idx + 1) * 2, pcs));
-			m_idx += 1 + pcs;
+				// 第２引数はバイト、第３引数は u16 で指定すること
+				m_text_cur = g_utf16_to_str.decode(new Uint16Array(m_ary_buffer, m_idx * 2, m_param_cur));
+				m_idx += m_param_cur;
+			}
+			else {
+				const pcs = m_u16_buf[m_idx];
+				if (m_len_uint16buf < m_idx + 1 + pcs)
+				{ throw new Error('!!! g_utf16_to_str.Read_ID() : バッファオーバーフロー'); }
+
+				// 第２引数はバイト、第３引数は u16 で指定すること
+				m_text_cur = g_utf16_to_str.decode(new Uint16Array(m_ary_buffer, (m_idx + 1) * 2, pcs));
+				m_idx += 1 + pcs;
+			}
 		}
 		else {
 			m_text_cur = null;
@@ -51,7 +65,7 @@ const g_Read_Buf = new function() {
 	// ----------------------------------------------------------------
 	let m_peek_param_cur = 0;
 	let m_peek_text_cur = null
-
+/*
 	this.Peek_ID = (peek_idx) => {
 		if (peek_idx == m_len_uint16buf) { return [null, null]; }
 
@@ -59,7 +73,7 @@ const g_Read_Buf = new function() {
 		let val_id = val_uint16 & 0xff;
 		m_peek_param_cur = val_uint16 >>> 8;
 
-		if (val_id == ID_Text) {
+		if (val_id & ID_Text) {
 			const pcs = m_u16_buf[peek_idx];
 			if (peek_idx + 1 + pcs > m_len_uint16buf)
 			{ throw new Error('!!! g_utf16_to_str.Read_ID() : peek_idx + pcs > m_len_uint16buf'); }
@@ -75,7 +89,7 @@ const g_Read_Buf = new function() {
 
 		return [peek_idx, val_id];
 	};
-
+*/
 	this.Get_peek_param = () => m_peek_param_cur;
 	this.Get_peek_text = () => m_peek_text_cur;
 };
