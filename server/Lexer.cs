@@ -19,13 +19,20 @@ static Write_WS_Buffer ms_write_WS_buf;
 // file_path は、"md_root/..." の形のもの
 public static void LexFile(Write_WS_Buffer dst_wrt_WS_buf, string file_path)
 {
-	ms_write_WS_buf = dst_wrt_WS_buf;
-
 	ReadFile_to_MD_buf(file_path);
 	// この時点で、MD_buf の最後は \n\0 で終わっている。
 
+	// ---------------------------------------------------------
+	// 字句解析用のフラグを初期化
+	msb_next_is_Div = true;  // ファイル先頭は、必ず Div ブロックとなる
+	msb_Dtct_CodeBlk_Mark = false;
+
+	msb_is_in_CodeBlk = false;
+	msb_is_in_QuoteBlk = false;
+
 	// まず、Lexed_MD をエラー状態で書き込んでおく（エラーがあったときは、例外で外に飛んでいくため）
-	ms_write_WS_buf.Wrt_ID_param(ID.Lexed_MD, (byte)Param.Failed);
+	ms_write_WS_buf = dst_wrt_WS_buf;
+	ms_write_WS_buf.Wrt_ID_param(ID.Lexed_MD, Param.EN_Failed);
 
 	// ---------------------------------------------------------
 	// １行ごとに字句解析を実行する
@@ -47,7 +54,7 @@ public static void LexFile(Write_WS_Buffer dst_wrt_WS_buf, string file_path)
 
 	// Write_WS_Buffer で THROW_ERR() がコールされた場合、ID_End が既に書き込まれている
 	// ここに来た場合、Lexing に成功している
-	ms_write_WS_buf.Wrt_ID_param_At(0, ID.Lexed_MD, (byte)Param.Succeeded);
+	ms_write_WS_buf.Wrt_ID_param_At(0, ID.Lexed_MD, Param.EN_Succeeded);
 	ms_write_WS_buf.Wrt_ID_End();
 }
 
@@ -82,11 +89,11 @@ static void ReadFile_to_MD_buf(string file_path)
 
 
 // ------------------------------------------------------------------------------------
-static bool msb_next_is_Div = true;  // ファイル先頭は、必ず Div ブロックとなる
-static bool msb_Dtct_CodeBlk_Mark = false;
+static bool msb_next_is_Div;
+static bool msb_Dtct_CodeBlk_Mark;
 
-static bool msb_is_in_CodeBlk = false;
-static bool msb_is_in_QuoteBlk = false;
+static bool msb_is_in_CodeBlk;
+static bool msb_is_in_QuoteBlk;
 
 // psrc : 行頭
 // 戻り値 : 次の行頭
@@ -129,7 +136,7 @@ static char* Consume_Line(char* psrc)
 		break;
 
 	default:
-		// QuateBlk 解除確認
+		// QuoteBlk 解除確認
 		if (msb_is_in_QuoteBlk == true)
 		{
 			ms_write_WS_buf.Wrt_ID(ID.Div_Quote);
@@ -188,7 +195,7 @@ static char* Consume_Head_Line(char* psrc)
 	}
 
 	ms_write_WS_buf.Wrt_ID_param(ID.Div_Head, cnt);
-	msb_next_is_Div = false;
+	msb_next_is_Div = true;
 
 	psrc = ms_write_WS_buf.Consume_NormalLine(psrc);
 	if (*psrc == Chr.CR)
