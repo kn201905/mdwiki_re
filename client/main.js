@@ -48,7 +48,7 @@ const g_WS = new function() {
 
 			let id = g_Read_Buf.Consume_NextID();
 			if (id == ID_Lexed_MD) {
-				g_DomTree.BuildTree(g_e_DomTreeArea, g_Read_Buf);
+				g_DomTree.BuildTree(g_e_DomTreeArea);
 				return;
 			}
 
@@ -92,7 +92,9 @@ const g_GUI = new function() {
 };
 
 const g_pnl_Status = new function() {
-	const m_e_status = g_e_body.Add_Element('h2');
+	const m_e_status = g_e_body.Add_Div();
+	m_e_status.style.fontWeight = 'bold';
+	m_e_status.style.margin = '5px';
 	
 	this.GUI_Update = (stt) => {
 		switch (stt) {
@@ -167,7 +169,9 @@ const g_pnl_Log = new function() {
 	const m_e_panel = g_e_body.Add_Div();
 
 	const e_stg = m_e_panel.Add_FlexStg();
-	const e_title = e_stg.Add_Element('h2');
+	const e_title = e_stg.Add_Div();
+	e_title.style.fontWeight = 'bold';
+	e_title.style.margin = '5px';
 	e_title.textContent = '--- Log ---　';
 
 	const m_e_btn_clear_log = e_stg.Add_DivBtn('ログ クリア');
