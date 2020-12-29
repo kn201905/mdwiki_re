@@ -3,8 +3,9 @@
 // 上り、下り両用のコード
 const ID_Directory_Names = 1
 const ID_File_Names = 2
-const ID_Text = 3
-const ID_End = 4
+const ID_End = 3
+
+const ID_Text = 64
 
 // -----------------------------------------------------------------------
 // Param に Succeed or Fail を付加する
@@ -21,15 +22,17 @@ const ID_BR = 20  // 特殊扱い
 
 // ----------------------------------------------------------
 // 行頭ブロック用
-const ID_Div = 30
-const ID_Div_Head = 31  // param に 1 - 6 が指定される
-const ID_Div_Code = 35
-const ID_Div_Quote = 36
+const ID_Div = 128
+const ID_Div_Head = 129  // param に 1 - 6 が指定される
+const ID_Div_Code = 130
+const ID_Div_Quote = 131
 
 
 
 
 // -----------------------------------------------------------------------
-
+// Param
 const Param_Succeeded = 1
 const Param_Failed = 2
+
+const Param_no_BR_above = 1 << 7;
