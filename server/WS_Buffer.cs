@@ -23,6 +23,8 @@ internal Read_WS_Buf(byte[] buf)
 
 // ------------------------------------------------------------------------------------
 // 読み取りバッファが空になっている場合は、0 が返される
+// Read_ID() は、client から送られてきたデータを読み取るためだけにあることに注意
+// text セクションのコンパクションはされていない
 public byte Read_ID() 
 {
 	if (m_rem_ui16 == 0) { return 0; }
@@ -37,9 +39,9 @@ public byte Read_ID()
 	{
 		if (m_rem_ui16 == 0)
 		{ throw new Exception("Read_WS_Buf.Read_ID() : m_rem_ui16 == 0"); }
-				
+		
 		int len_txt = m_buf[m_idx_byte] + (m_buf[m_idx_byte + 1] << 8);
-		if (len_txt >= m_rem_ui16)
+		if (m_rem_ui16 <= len_txt)
 		{ throw new Exception("Read_WS_Buf.Read_ID() : len_txt >= m_rem_ui16"); }
 
 		// 第２引数、第３引数ともに、バイト数で表していることに注意
@@ -303,8 +305,7 @@ public unsafe void THROW_ERR(char* psrc, string err_msg)
 }
 
 // ------------------------------------------------------------------------------------
-// 行末コード CR or LF に達したところでリターンする（ID.BR の書き込みはしない）
-// Code ブロック用（今後、大幅に加筆される予定）
+// Code ブロック用（今後、大幅に加筆される予定あり）
 // 戻り値 : 次の行頭
 public unsafe char* Cosume_CodeLine(char* psrc)
 {
@@ -366,8 +367,8 @@ public unsafe char* Cosume_CodeLine(char* psrc)
 }
 
 // ------------------------------------------------------------------------------------
-// 行末コード CR or LF に達したところでリターンする（ID.BR の書き込みはしない）
-// Normal ブロック用（今後、大幅に加筆される予定）
+// 行末コード CR or LF に達したところでリターンする
+// Normal ブロック用（今後、大幅に加筆される予定あり）
 // 戻り値 : 行末記号の位置（CR or LF）
 public unsafe char* Consume_NormalLine(char* psrc)
 {
@@ -478,107 +479,156 @@ public unsafe char* Consume_NormalLine(char* psrc)
 // ------------------------------------------------------------------------------------
 // [text] の結合、[text] の行末の空白削除
 // エラーがあった場合、エラー事由が返される。（エラーがなければ null が返される）
-public unsafe string Simplify_Buf()
+public unsafe void Simplify_Buf()
 {
-	string ret_str;
-	fixed (byte* buf_top_byte = m_buf)
+	try
 	{
-		char* psrc = (char*)buf_top_byte;
-		char* pTmnt_src = (char*)(buf_top_byte + m_idx_byte);
-		char* pdst = (char*)buf_top_byte;
-		
-		// ptr_at_pos_text_len != null であるときは、text セクションが閉じていない、ということ
-		char* ptr_at_pos_text_len = null;
-		while (true)
+		fixed (byte* buf_top_byte = m_buf)
 		{
-			if (psrc >= pTmnt_src) { break; }
+			Text_section_compaction(buf_top_byte);
 
-			char chr = *psrc++;
-			if ((byte)(chr & 0xff) == (byte)ID.Text)
+			// -------------------------------------------------------
+			// その他のコンパクションをする場合は、この位置で行うこと
+
+			// -------------------------------------------------------
+			// FLG_no_BR_above の処理
+			ushort* psrc = (ushort*)buf_top_byte;
+			ushort* pTmnt_src = (ushort*)(buf_top_byte + m_idx_byte);
+			bool b_next_is_no_BR_above = false;
+
+			bool b_in_QuoteBlk = false;
+
+			// psrc の最初は ID.Lexed_MD。その次は、必ず Div系のブロックのはず
+			*(psrc + 1) |= Param.FLG_no_BR_above_ushort;
+			psrc += 2;
+			while (psrc < pTmnt_src)
 			{
-				if (ptr_at_pos_text_len == null)
-				{
-					// text セクションを開く
-					*pdst = (char)ID.Text;
-					ptr_at_pos_text_len = pdst + 1;
-					pdst += 2;
-				}
+				ushort val_ushort = *psrc;
+				ID id = (ID)val_ushort;
 
-				// テキストのコピー
-				char* pdst_line_top = pdst;
-				for (int i = *psrc++; i > 0; --i)
-				{ *pdst++ = *psrc++; }
-
-				// 行末の空白文字を削除
-				if (pdst > pdst_line_top)  // text_len == 0 のときを考慮
+				if (id.IsText())
 				{
-					while (true)
+					// SP を nbsp へ変換
+					int param = val_ushort >> 8;
+					int text_len = (param > 0) ? param : *(++psrc);
+					for (; text_len > 0; --text_len)
 					{
-						switch (*(--pdst))
-						{
-						case Chr.SP:
-						case Chr.SP_ZEN:
-							if (pdst == pdst_line_top) { break; }
-							continue;
-
-						default:
-							pdst++;
-							break;
-						}
-						break;
+						ushort c = *(++psrc);
+						if (c == Chr.SP) { *psrc = Chr.NBSP; }
 					}
+					psrc++;
 				}
-			}
-			else
-			{
-				// text セクションが開いていた場合、それを閉じる
-				if (ptr_at_pos_text_len != null)
+				else if (id == ID.Div_Quote)
 				{
-					char text_len = (char)(pdst - ptr_at_pos_text_len - 1);
-					if (text_len == 0)
-					{
-						pdst = ptr_at_pos_text_len - 1;
-					}
+					b_in_QuoteBlk = !b_in_QuoteBlk;
+					if (b_in_QuoteBlk == true)
+					{ b_next_is_no_BR_above = true; }
 					else
-					{
-						*ptr_at_pos_text_len = text_len;
-					}
-					ptr_at_pos_text_len = null;
+					{ b_next_is_no_BR_above = false; }  // 空の QuoteBlk だった場合（ないはずだけど、、）
+					psrc++;
 				}
+				else
+				{
+					if (b_next_is_no_BR_above == true)
+					{
+						if (id.IsDiv() == false)  // バグの顕在化
+						{ throw new Exception("Div_Quote の直後が Divブロックではありませんでした。"); }
 
-				*pdst++ = chr;
-			}
-		}  // while
+						*psrc |= Param.FLG_no_BR_above_ushort;
+						b_next_is_no_BR_above = false;
+					}
+					psrc++;
+				}
+			} // while
+		} // fixed
 
-		// -------------------------------------------------------
-		// m_idx_byte, m_rem_ui16 を再設定する
-		m_idx_byte = (int)(((byte*)pdst) - buf_top_byte);
-		m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
+	}
+	catch(Exception ex)
+	{
+		this.Wrt_ID(ID.ERR_on_Simplify);
+		this.Wrt_PStr(ex.Message);
+		throw;  // rethrow
+	}
+}
 
-		if (psrc == pTmnt_src)
+// ------------------------------------------------------------------------------------
+public unsafe void Text_section_compaction(byte* buf_top_byte)
+{
+	ushort* psrc = (ushort*)buf_top_byte;
+	ushort* pTmnt_src = (ushort*)(buf_top_byte + m_idx_byte);
+	ushort* pdst = (ushort*)buf_top_byte;
+
+	// ptr_at_pos_text_len != null であるときは、text セクションが閉じていない、ということ
+	ushort* ptr_at_pos_text_len = null;
+
+	while (psrc < pTmnt_src)
+	{
+		ushort chr = *psrc++;
+		if (((ID)chr).IsText())
 		{
-			char chr_end = *(psrc - 1);
-			if ((byte)(chr_end & 0xff) == (byte)ID.End)
+			if (ptr_at_pos_text_len == null)
 			{
-				ret_str = null;
+				// text セクションを開く
+				*pdst = (ushort)ID.Text;
+				ptr_at_pos_text_len = pdst + 1;
+				pdst += 2;
 			}
-			else
+
+			// テキストのコピー
+			ushort* pdst_textbody_top = pdst;
+			for (int i = *psrc++; i > 0; --i)
+			{ *pdst++ = *psrc++; }
+
+			// 行末の空白文字を削除
+			while (pdst > pdst_textbody_top)  // text_len == 0 のときを考慮
 			{
-				ret_str = $"!!! 終端が ID.End で終わっていませんでした。chr_end = {((int)chr_end).ToString()}";
+				ushort c = *(pdst - 1);
+				if (c == Chr.SP || c == Chr.SP_ZEN) { pdst--; continue; }
+
+				break;
 			}
 		}
 		else
 		{
-			ret_str = "!!! Simplify時に、psrc > pTmnt_src となりました。";
-		}
-	}  // fixed
+			// text セクションが開いていた場合、それを閉じる
+			if (ptr_at_pos_text_len != null)
+			{
+				ushort text_len = (ushort)(pdst - ptr_at_pos_text_len - 1);
+				if (text_len == 0)
+				{
+					pdst = ptr_at_pos_text_len - 1;
+				}
+				else if (text_len > 0xff)
+				{
+					*ptr_at_pos_text_len = text_len;
+				}
+				else  // text_len <= 255 のときの処理
+				{
+					*(ptr_at_pos_text_len - 1) = (ushort)((text_len << 8) + (ushort)ID.Text);
+					ushort* p_org = ptr_at_pos_text_len + 1;
+					for (; text_len > 0; --text_len)
+					{ *(p_org - 1) = *p_org++; }
 
-	if (ret_str != null)
-	{
-		this.Wrt_ID(ID.ERR_on_Simplify);
-		this.Wrt_PStr(ret_str);
-	}
-	return ret_str;
+					pdst--;
+				}
+				ptr_at_pos_text_len = null;
+			}
+
+			*pdst++ = chr;
+		}
+	}  // while
+
+	if (psrc > pTmnt_src)
+	{ throw new Exception("!!! Text_section_compaction() : psrc > pTmnt_src となりました。"); }
+
+	int chr_end_id = *(psrc - 1) & 0xff;
+	if (chr_end_id != (int)ID.End)
+	{ throw new Exception($"!!! Text_section_compaction() : chr_end = {chr_end_id.ToString()}"); }
+
+	// -------------------------------------------------------
+	// 終了処理 : m_idx_byte, m_rem_ui16 を再設定する
+	m_idx_byte = (int)(((byte*)pdst) - buf_top_byte);
+	m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
 }
 
 
