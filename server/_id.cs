@@ -4,7 +4,7 @@ namespace md_svr
 {
 
 // セクション長が可変になるのは、Text のみとすること
-[Flags] internal enum ID : byte
+[Flags] public enum ID : byte
 {
 	Undefined = 0,
 
@@ -13,6 +13,8 @@ namespace md_svr
 	Directory_Names = 1,
 	File_Names = 2,
 	End = 3,
+	FileList = 4,
+
 	// Lexed の中では、Text は、Div のいずれかの中に必ず入ること
 	// Text は、64 - 127
 	Text = 64,
@@ -29,9 +31,15 @@ namespace md_svr
 	ERR_on_Simplify = 13,
 
 	BR = 20,  // 特殊扱い
+	HLine = 21,
 
 	// ----------------------------------------------------------
 	// インライン用
+	Txt_flags_mask = 0b_0011_1111,
+	Txt_Bold = 1,
+	Txt_Cancel = 2,
+	Txt_Under = 4,
+	Txt_Code = 8,
 
 	// ----------------------------------------------------------
 	// Div用（128 - 191）
@@ -39,9 +47,10 @@ namespace md_svr
 	Div_Head = 129,  // param に 1 - 6 が指定される
 	Div_Code = 130,
 	Div_Quote = 131,
+	Div_Bullet = 132,
 }
 
-internal static class ID_Ext
+public static class ID_Ext
 {
 	public static bool IsText(this ID id)
 	{ return id.HasFlag(ID.Text); }
