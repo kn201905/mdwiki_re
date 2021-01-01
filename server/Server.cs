@@ -10,67 +10,81 @@ namespace md_svr
 {
 	static class MdSvr
 	{
-		// WebSocket —p‚Ìƒ|[ƒg”Ô†
+		// WebSocket ç”¨ã®ãƒãƒ¼ãƒˆç•ªå·
 		enum WS_Port : uint { EN_num = 3000 }
 		static string ms_str_port_num = ((uint)WS_Port.EN_num).ToString();
 
 		// -------------------------------------------------
 		public static CancellationTokenSource ms_cts_shutdown;
+		public static UnicodeEncoding ms_utf16_encoding = null;
 
-		// false: little endian / true: BOM•t‰Á / true: —áŠOƒXƒ[‚ ‚è
-		public static UnicodeEncoding ms_utf16_encoding = new UnicodeEncoding(false, true, true);
+		static List<Task> m_tasks_context = new List<Task>();
+		static bool msb_in_shutting_down = false;
 
 		// ------------------------------------------------------------------------------------
 		public static async Task Spawn_Start()
 		{
 			var listener = new HttpListener();
-			var tasks_context = new List<Task>();
 
 			listener.Prefixes.Add($"http://localhost:{ms_str_port_num}/");
-			MainForm.StdOut($"--- Ú‘±ó•tŠJniƒ|[ƒg: {ms_str_port_num}j\r\n");
+			MainForm.StdOut($"--- æ¥ç¶šå—ä»˜é–‹å§‹ï¼ˆãƒãƒ¼ãƒˆ: {ms_str_port_num}ï¼‰\r\n");
 
 			listener.Start();
 			using (ms_cts_shutdown = new CancellationTokenSource())
 			{
-				// WS_Context ‚Ì static •Ï”‚ğİ’è
+				// WS_Context ã® static å¤‰æ•°ã‚’è¨­å®š
 				WS_Context.ms_cts_shutdown = ms_cts_shutdown;
 				WS_Context.ms_utf16_encoding = ms_utf16_encoding;
 
-				// Read_Buffer ‚Ì static •Ï”‚ğİ’è
-				Read_Buffer.ms_utf16_encoding = ms_utf16_encoding;
+				// Read_Buffer ã® static å¤‰æ•°ã‚’è¨­å®š
+				Read_WS_Buf.ms_utf16_encoding = ms_utf16_encoding;
 
 				while (true)
 				{
-					// GetContextAsync() ‚ÍAƒLƒƒƒ“ƒZƒ‹ƒg[ƒNƒ“‚ğƒTƒ|[ƒg‚µ‚Ä‚¢‚È‚¢
+					// GetContextAsync() ã¯ã€ã‚­ãƒ£ãƒ³ã‚»ãƒ«ãƒˆãƒ¼ã‚¯ãƒ³ã‚’ã‚µãƒãƒ¼ãƒˆã—ã¦ã„ãªã„
 					HttpListenerContext context = await listener.GetContextAsync();
 					if (context.Request.IsWebSocketRequest == false)
 					{
-						// ‚±‚Ìê‡AƒT[ƒo[‚ğI—¹‚·‚éƒƒbƒZ[ƒW‚ğó‚¯æ‚Á‚½‚à‚Ì‚Æ‚·‚é
-						// GetContextAsync() ‚ÉƒLƒƒƒ“ƒZƒ‹ƒg[ƒNƒ“‚ª‚È‚¢‚½‚ß‚Ì‘[’u
-						MainForm.StdOut("--- ƒVƒƒƒbƒgƒ_ƒEƒ“ˆ—ŠJn\r\n");
+						// ã“ã®å ´åˆã€ã‚µãƒ¼ãƒãƒ¼ã‚’çµ‚äº†ã™ã‚‹ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã‚’å—ã‘å–ã£ãŸã‚‚ã®ã¨ã™ã‚‹
+						// GetContextAsync() ã«ã‚­ãƒ£ãƒ³ã‚»ãƒ«ãƒˆãƒ¼ã‚¯ãƒ³ãŒãªã„ãŸã‚ã®æªç½®
+						MainForm.StdOut("--- ã‚·ãƒ£ãƒƒãƒˆãƒ€ã‚¦ãƒ³å‡¦ç†é–‹å§‹\r\n");
 
+						msb_in_shutting_down = true;
 						ms_cts_shutdown.Cancel();
 
-						foreach(Task task in tasks_context)
+						foreach(Task task in m_tasks_context)
 						{ await task; }
 
 						break;
 					}
 
 					var ws_context = new WS_Context();
-					tasks_context.Add(ws_context.Spawn_Context(context));
+					Task task_context = ws_context.Spawn_Context(context);
+					m_tasks_context.Add(task_context);
+					Spawn_ContextMonitor(task_context);
 				}
 			}
 
 			listener.Stop();
-			await Task.Delay(1000);  // ‚±‚ê‚ª–³‚¢‚Æ—áŠO‚ª”­¶‚·‚é‚±‚Æ‚ª‚ ‚é‚æ‚¤‚ÈH
+			await Task.Delay(1000);  // ã“ã‚ŒãŒç„¡ã„ã¨ä¾‹å¤–ãŒç™ºç”Ÿã™ã‚‹ã“ã¨ãŒã‚ã‚‹ã‚ˆã†ãªï¼Ÿ
 			listener.Close();
+		}
+
+		// ------------------------------------------------------------------------------------
+		static async void Spawn_ContextMonitor(Task task_context)
+		{
+			await task_context;
+
+			// ã‚·ãƒ£ãƒƒãƒˆãƒ€ã‚¦ãƒ³ä¸­ã® foreach(Task task in m_tasks_context) ã«ãŠã„ã¦ã€m_tasks_context ã®å¤‰æ›´ã¯ã§ããªã„ãŸã‚
+			if (msb_in_shutting_down == true) { return; }
+
+			m_tasks_context.Remove(task_context);
 		}
 
 		// ------------------------------------------------------------------------------------
 		public static void SendSignal_Shutdown()
 		{
-			// Œ»“_‚Å‚ÍA"CLOSE" ‚Ì•¶š—ñ‚Í”CˆÓ‚Ì‚à‚Ì‚Å‚æ‚¢
+			// ç¾æ™‚ç‚¹ã§ã¯ã€"CLOSE" ã®æ–‡å­—åˆ—ã¯ä»»æ„ã®ã‚‚ã®ã§ã‚ˆã„
 			var http_content = new StringContent("CLOSE", ms_utf16_encoding);
 			new HttpClient().PostAsync($"http://localhost:{ms_str_port_num}/", http_content);
 		}
