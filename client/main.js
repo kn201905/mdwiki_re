@@ -43,18 +43,20 @@ const g_WS = new function() {
 		m_ws.onmessage = (event) => {
 			g_pnl_Log.Log('--- メッセージを受信しました。');
 
-			// 現在は受け取ったメッセージをログに表示するのみ
-			g_Read_Buf.SetArrayBuffer(event.data);
+			g_TStream_Reader.SetArrayBuffer(event.data);
 
-			let id = g_Read_Buf.Consume_NextID();
-			if (id == ID_Lexed_MD) {
+			switch (g_TStream_Reader.Consume_NextID()) {
+			case ID_Lexed_MD:
+				// BuildTree に渡した要素は、子要素が全て remove されるため注意
 				g_DomTree.BuildTree(g_e_DomTreeArea);
 				return;
-			}
 
-			while (true) {
-				if (g_Read_Buf_to_Log.Show(id) == false) { break; }
-				id = g_Read_Buf.Consume_NextID();
+			case ID_FileList:
+				g_FileLister.Show_Using_TStream_Reader(g_TStream_Reader);
+				return;
+
+			default:
+				g_pnl_Log.Log("!!! 不明な ID を受信しました。");
 			}
 		};
 	};
@@ -185,6 +187,8 @@ const g_pnl_Log = new function() {
 		e_txt_area.scrollTop = e_txt_area.scrollHeight;
 	};
 };
+
+g_FileLister.Set_e_ListArea(g_e_body.Add_Div());
 
 const g_e_DomTreeArea = g_e_body.Add_Div();
 
