@@ -34,11 +34,13 @@ public static void LexFile(Write_WS_Buffer dst_wrt_WS_buf, string file_path)
 	ms_write_WS_buf = dst_wrt_WS_buf;
 	ms_write_WS_buf.Wrt_ID_param(ID.Lexed_MD, Param.EN_Failed);
 
+	ms_write_WS_buf.Clear_Txt_flags();
+
 	// ---------------------------------------------------------
 	// １行ごとに字句解析を実行する
 	fixed (byte* pstr_MD_top = ms_MD_buf)
 	{
-		char* psrc = (char*)(pstr_MD_top + 2);  // +2 は、utf-16le の BOM
+		ushort* psrc = (ushort*)(pstr_MD_top + 2);  // +2 は、utf-16le の BOM
 
 		while (true)
 		{
@@ -97,13 +99,15 @@ static bool msb_is_in_QuoteBlk;
 
 // psrc : 行頭
 // 戻り値 : 次の行頭
-static char* Consume_Line(char* psrc)
+static ushort* Consume_Line(ushort* psrc)
 {
 	// -----------------------------------------------------
 	// 行頭チェック（#, ```, >）
-	switch (*psrc)
+	ushort chr_linetop = *psrc;
+
+	// Quote は特殊な処理となる
+	if (chr_linetop == '>')
 	{
-	case '>':
 		if (msb_is_in_QuoteBlk == false)
 		{
 			// QuoteBlk に入る
@@ -112,30 +116,12 @@ static char* Consume_Line(char* psrc)
 
 			msb_next_is_Div = true;
 		}
-		char chr = *++psrc;
-		if (chr == Chr.SP) { chr = *++psrc; }
 
-		// コードブロックのチェック
-		if (chr == '`') { goto case '`'; }
-		break;
-
-	case '#':
-		// コードブロックの場合、先頭の # はそのまま表示する
-		if (msb_is_in_CodeBlk == true) { break; }
-
-		// 必ず Head 行として扱う
-		return Consume_Head_Line(psrc);
-
-	case '`':
-		psrc = Consume_CodeBlk_Mark(psrc);
-		if (msb_Dtct_CodeBlk_Mark == true)
-		{
-			msb_Dtct_CodeBlk_Mark = false;
-			return psrc;
-		}
-		break;
-
-	default:
+		chr_linetop = *++psrc;
+		if (chr_linetop == Chr.SP) { chr_linetop = *++psrc; }
+	}
+	else
+	{
 		// QuoteBlk 解除確認
 		if (msb_is_in_QuoteBlk == true)
 		{
@@ -143,6 +129,50 @@ static char* Consume_Line(char* psrc)
 			msb_is_in_QuoteBlk = false;
 
 			msb_next_is_Div = true;
+		}
+	}
+
+	switch (chr_linetop)
+	{	
+	case '`':
+		psrc = Consume_CodeBlk_Mark(psrc);  // CodeBlk_Mark のみを consume する
+		if (msb_Dtct_CodeBlk_Mark == true)
+		{
+			msb_Dtct_CodeBlk_Mark = false;
+			return psrc;
+		}
+		break;
+
+	case '#':
+		if (msb_is_in_CodeBlk == true) { break; }
+
+		// 必ず Head 行として扱う（Head でない場合、例外がスローされるようにした）
+		return Consume_Head_Line(psrc);
+
+	case '*':
+		if (msb_is_in_CodeBlk == true) { break; }
+
+		if (*(psrc + 1) != Chr.SP) { break; }
+		// bullet 処理
+		ms_write_WS_buf.Wrt_ID(ID.Div_Bullet);
+		msb_next_is_Div = false;
+		psrc += 2;
+		break;
+
+	case '-':
+		if (*(uint*)(psrc + 1) == 0x002d_002d)  // 水平線
+		{
+			ms_write_WS_buf.Wrt_ID(ID.HLine);
+			msb_next_is_Div = true;
+
+			// この場合は行末まで読み飛ばすことにした
+			psrc += 3;
+			while (true)
+			{
+				ushort chr = *psrc++;
+				if (chr == Chr.CR) { return psrc + 1; }
+				if (chr == Chr.LF) { return psrc; }
+			}
 		}
 		break;
 	}
@@ -153,8 +183,8 @@ static char* Consume_Line(char* psrc)
 	{ return ms_write_WS_buf.Cosume_CodeLine(psrc); }
 
 	// 先頭が空行であった場合、空行が何行あったとしても Div が一度しか生成されないようにする
-	if (*psrc == Chr.CR) { msb_next_is_Div = true;  return psrc + 2; }
-	if (*psrc == Chr.LF) { msb_next_is_Div = true;  return psrc + 1; }
+	if (chr_linetop == Chr.CR) { msb_next_is_Div = true;  return psrc + 2; }
+	if (chr_linetop == Chr.LF) { msb_next_is_Div = true;  return psrc + 1; }
 
 	// 何らかの表示文字列が現れた場合の処理
 	if (msb_next_is_Div == true)
@@ -179,20 +209,15 @@ static char* Consume_Line(char* psrc)
 }
 
 // ------------------------------------------------------------------------------------
-static char* Consume_Head_Line(char* psrc)
+static ushort* Consume_Head_Line(ushort* psrc)
 {
-	char* psrc_AtBgn = psrc;
-
 	byte cnt = 1;
 	while (*++psrc == '#') { cnt++; }
 	if (cnt > 6) { cnt = 6; }
 
 	// 半角スペースが無い場合、エラーとしておく（GitHub との整合性）
 	if (*psrc++ != Chr.SP)
-	{
-		ms_write_WS_buf.THROW_ERR(--psrc, "# の後にスペースがありませんでした。");
-		return null;
-	}
+	{ ms_write_WS_buf.THROW_ERR(--psrc, "# の後にスペースがありませんでした。"); }
 
 	ms_write_WS_buf.Wrt_ID_param(ID.Div_Head, cnt);
 	msb_next_is_Div = true;
@@ -205,15 +230,13 @@ static char* Consume_Head_Line(char* psrc)
 }
 
 // ------------------------------------------------------------------------------------
-static char* Consume_CodeBlk_Mark(char* psrc)
+// CodeBlk_Mark のみを consume する
+static ushort* Consume_CodeBlk_Mark(ushort* psrc)
 {
 	if (*(psrc + 1) != '`') { return psrc; }  // この場合は、inline code
 
 	if (*(psrc + 2) != '`')
-	{
-		ms_write_WS_buf.THROW_ERR(psrc, "``○ の形の文字列を検出しました。");
-		return null;
-	}
+	{ ms_write_WS_buf.THROW_ERR(psrc, "``○ の形の文字列を検出しました。"); }
 
 	// psrc から「```」を検出した場合の処理
 	switch (*(psrc + 3))
@@ -235,7 +258,7 @@ static char* Consume_CodeBlk_Mark(char* psrc)
 		else
 		{
 			// CodeBlk から出る
-			ms_write_WS_buf.Wrt_ID(ID.Div_Code);
+//			ms_write_WS_buf.Wrt_ID(ID.Div_Code);
 			msb_is_in_CodeBlk = false;
 			msb_next_is_Div = true;
 		}
