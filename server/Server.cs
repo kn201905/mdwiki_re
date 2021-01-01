@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace md_svr
 {
@@ -18,13 +19,14 @@ namespace md_svr
 		public static CancellationTokenSource ms_cts_shutdown;
 		public static UnicodeEncoding ms_utf16_encoding = null;
 
-		static List<Task> m_tasks_context = new List<Task>();
+		static SortedList<uint, Task> m_task_list = new SortedList<uint, Task>();
 		static bool msb_in_shutting_down = false;
 
 		// ------------------------------------------------------------------------------------
 		public static async Task Spawn_Start()
 		{
 			var listener = new HttpListener();
+			uint idx_context = 0;
 
 			listener.Prefixes.Add($"http://localhost:{ms_str_port_num}/");
 			MainForm.StdOut($"--- 接続受付開始（ポート: {ms_str_port_num}）\r\n");
@@ -52,16 +54,18 @@ namespace md_svr
 						msb_in_shutting_down = true;
 						ms_cts_shutdown.Cancel();
 
-						foreach(Task task in m_tasks_context)
-						{ await task; }
+						foreach(var kvp in m_task_list)
+						{
+//							Debug.WriteLine("--- await idx_context : " + kvp.Key.ToString());
+							await kvp.Value;
+						}
 
 						break;
 					}
 
 					var ws_context = new WS_Context();
-					Task task_context = ws_context.Spawn_Context(context);
-					m_tasks_context.Add(task_context);
-					Spawn_ContextMonitor(task_context);
+					Task task_context = ws_context.Spawn_Context(context, ++idx_context);
+					m_task_list.Add(idx_context, task_context);
 				}
 			}
 
@@ -71,14 +75,12 @@ namespace md_svr
 		}
 
 		// ------------------------------------------------------------------------------------
-		static async void Spawn_ContextMonitor(Task task_context)
+		public static void Remove_task_context(uint idx_context)
 		{
-			await task_context;
-
-			// シャットダウン中の foreach(Task task in m_tasks_context) において、m_tasks_context の変更はできないため
+			// シャットダウン中の foreach(var kvp in m_task_list) において、m_task_list の変更はできないため
 			if (msb_in_shutting_down == true) { return; }
 
-			m_tasks_context.Remove(task_context);
+			m_task_list.Remove(idx_context);
 		}
 
 		// ------------------------------------------------------------------------------------
