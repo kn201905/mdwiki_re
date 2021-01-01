@@ -75,7 +75,7 @@ public void Renew(int len_bytes)
 
 /////////////////////////////////////////////////////////////////////////////////////
 
-internal class Write_WS_Buffer
+public class Write_WS_Buffer
 {
 byte[] m_buf;
 
@@ -244,13 +244,13 @@ const int EN_MAX_ERR_Text = 200;
 
 // エラーレポートと、ID.End を書き込んで例外を投げる
 // err_msg は、クライアントと、サーバー側の StdOut に送られるメッセージ
-public unsafe void THROW_ERR(char* psrc, string err_msg)
+public unsafe void THROW_ERR(ushort* psrc, string err_msg)
 {
 	if (m_rem_ui16 < EN_Margin_buf) { this.THROW_Overflow_ERR(); }
 
 	fixed (byte* pdst_top = m_buf)
 	{
-		char* pdst = (char*)(pdst_top + m_idx_byte);
+		ushort* pdst = (ushort*)(pdst_top + m_idx_byte);
 
 		// err_msg の埋め込み
 		{
@@ -260,15 +260,15 @@ public unsafe void THROW_ERR(char* psrc, string err_msg)
 			m_idx_byte += (4 + len_to_wrt) * 2;
 			m_rem_ui16 -= 4 + len_to_wrt;
 
-			*pdst = (char)ID.ERR_Report;
-			*(pdst + 1) = (char)ID.Div;
-			*(pdst + 2) = (char)ID.Text;
-			*(pdst + 3) = (char)len_to_wrt;
+			*pdst = (ushort)ID.ERR_Report;
+			*(pdst + 1) = (ushort)ID.Div;
+			*(pdst + 2) = (ushort)ID.Text;
+			*(pdst + 3) = (ushort)len_to_wrt;
 			pdst += 4;
 			
 			fixed (char* pmsg_top = err_msg)
 			{
-				char* pmsg = pmsg_top;
+				ushort* pmsg = (ushort*)pmsg_top;
 				for (; len_to_wrt > 0; --len_to_wrt)
 				{ *pdst++ = *pmsg++; }
 			}
@@ -278,24 +278,24 @@ public unsafe void THROW_ERR(char* psrc, string err_msg)
 		if (m_rem_ui16 < 4) { this.THROW_Overflow_ERR(); }
 
 		// +3 : ID.Div、ID.Text、len_text
-		char* pTmnt_dst = pdst + Math.Min(EN_MAX_ERR_Text + 3, m_rem_ui16);
+		ushort* pTmnt_dst = pdst + Math.Min(EN_MAX_ERR_Text + 3, m_rem_ui16);
 
-		*pdst = (char)ID.Div;
-		*(pdst + 1) = (char)ID.Text;
-		char* ptr_at_pos_text_len = pdst + 2;
+		*pdst = (ushort)ID.Div;
+		*(pdst + 1) = (ushort)ID.Text;
+		ushort* ptr_at_pos_text_len = pdst + 2;
 
 		while (true)
 		{
-			char chr = *psrc++;
+			ushort chr = *psrc++;
 			if (pdst == pTmnt_dst || chr == 0) { break; }
 
-			if (chr == Chr.CR) { *pdst++ = (char)ID.BR;  psrc++;  continue; }
-			if (chr == Chr.LF) { *pdst++ = (char)ID.BR;  continue; }
+			if (chr == Chr.CR) { *pdst++ = (ushort)ID.BR;  psrc++;  continue; }
+			if (chr == Chr.LF) { *pdst++ = (ushort)ID.BR;  continue; }
 
 			*pdst++ = chr;
 		}
 
-		*ptr_at_pos_text_len = (char)((pdst - ptr_at_pos_text_len) - 1);  // 文字数の書き込み
+		*ptr_at_pos_text_len = (ushort)((pdst - ptr_at_pos_text_len) - 1);  // 文字数の書き込み
 		m_idx_byte = (int)(((byte*)pdst) - pdst_top);
 		m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
 	}
@@ -307,7 +307,7 @@ public unsafe void THROW_ERR(char* psrc, string err_msg)
 // ------------------------------------------------------------------------------------
 // Code ブロック用（今後、大幅に加筆される予定あり）
 // 戻り値 : 次の行頭
-public unsafe char* Cosume_CodeLine(char* psrc)
+public unsafe ushort* Cosume_CodeLine(ushort* psrc)
 {
 	// 先頭が改行（空行）であった場合、改行のみしてリターンする
 	if (*psrc == Chr.CR) { this.Wrt_ID(ID.BR);  return psrc + 2; }
@@ -323,11 +323,11 @@ public unsafe char* Cosume_CodeLine(char* psrc)
 	// dest 側の fixed
 	fixed (byte* pdst_top = m_buf)
 	{
-		char* pdst = (char*)(pdst_top + m_idx_byte);
-		char* pTmnt_dst = pdst + m_rem_ui16 - EN_Margin_buf;
+		ushort* pdst = (ushort*)(pdst_top + m_idx_byte);
+		ushort* pTmnt_dst = pdst + m_rem_ui16 - EN_Margin_buf;
 
-		*pdst = (char)ID.Text;
-		char* pdst_at_pos_text_len = pdst + 1;
+		*pdst = (ushort)ID.Text;
+		ushort* pdst_at_pos_text_len = pdst + 1;
 		pdst += 2;
 
 		while (true)
@@ -338,7 +338,7 @@ public unsafe char* Cosume_CodeLine(char* psrc)
 				break;
 			}
 
-			char chr = *psrc++;
+			ushort chr = *psrc++;
 			// 行末が来たら処理を終了する。ID.BR の処理は Lexer の方で行う
 			if (chr == Chr.CR) { psrc++;  break; }
 			if (chr == Chr.LF) { break; }
@@ -352,7 +352,7 @@ public unsafe char* Cosume_CodeLine(char* psrc)
 			*pdst++ = chr;
 		}
 
-		*pdst_at_pos_text_len = (char)((pdst - pdst_at_pos_text_len) - 1);  // 文字数の書き込み
+		*pdst_at_pos_text_len = (ushort)((pdst - pdst_at_pos_text_len) - 1);  // 文字数の書き込み
 		m_idx_byte = (int)(((byte*)pdst) - pdst_top);
 		m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
 	}
@@ -367,10 +367,15 @@ public unsafe char* Cosume_CodeLine(char* psrc)
 }
 
 // ------------------------------------------------------------------------------------
+byte m_Txt_flags = 0;
+
+public void Clear_Txt_flags() { m_Txt_flags = 0; }
+
+// ------------------------------------------------------------------------------------
 // 行末コード CR or LF に達したところでリターンする
 // Normal ブロック用（今後、大幅に加筆される予定あり）
 // 戻り値 : 行末記号の位置（CR or LF）
-public unsafe char* Consume_NormalLine(char* psrc)
+public unsafe ushort* Consume_NormalLine(ushort* psrc)
 {
 	if (m_rem_ui16 < EN_Margin_buf) { this.THROW_Overflow_ERR(); }
 
@@ -381,18 +386,18 @@ public unsafe char* Consume_NormalLine(char* psrc)
 	// dest 側の fixed
 	fixed (byte* pdst_top = m_buf)
 	{
-		char* pdst = (char*)(pdst_top + m_idx_byte);
-		char* pTmnt_dst = pdst + m_rem_ui16 - EN_Margin_buf;
+		ushort* pdst = (ushort*)(pdst_top + m_idx_byte);
+		ushort* pTmnt_dst = pdst + m_rem_ui16 - EN_Margin_buf;
 
 		// ptr_at_pos_text_len が null のときは、テキストセクションの処理外であると分かる
-		char* ptr_at_pos_text_len = null;
+		ushort* ptr_at_pos_text_len = null;
 		bool b_on_escaped = false;
 
 		void CLOSE_TEXT_SEC_IF_OPEN()
 		{
 			if (ptr_at_pos_text_len != null)
 			{
-				*ptr_at_pos_text_len = (char)(pdst - ptr_at_pos_text_len - 1);
+				*ptr_at_pos_text_len = (ushort)(pdst - ptr_at_pos_text_len - 1);
 				ptr_at_pos_text_len = null;
 			}
 		}
@@ -405,14 +410,12 @@ public unsafe char* Consume_NormalLine(char* psrc)
 				break;
 			}
 
-			char chr = *psrc;
+			ushort chr = *psrc;
 
 			// 行末処理で、改行が必要かどうかの判断を行うため、psrc は最初の行末コードの部分でリターンさせる
 			if (chr == Chr.CR || chr == Chr.LF) { break; }
 
 			//  -------------------------------------------------
-			// chr は、何らかの表示文字。以降は、text セクションとして処理
-
 			// エスケープ文字の処理
 			if (b_on_escaped == true)
 			{
@@ -429,24 +432,65 @@ public unsafe char* Consume_NormalLine(char* psrc)
 					continue;  // '\' は書き込まない（*pdst++ = chr; をしない）
 
 				case '<':
-					// <br>, <BR> の検査
 					ulong ui64str = *(ulong*)psrc;
 					if (ui64str == 0x003e_0072_0062_003c || ui64str == 0x003e_0052_0042_003c)
 					{
+						// <br>, <BR> の処理
 						CLOSE_TEXT_SEC_IF_OPEN();
-
 						*pdst++ = (char)ID.BR;
 						psrc += 4;
 						continue;
 					}
 					break;
-				}
-			}
 
+				case '*':
+					if (*(psrc + 1) == '*')
+					{
+						// ボールド処理（トグル）
+						CLOSE_TEXT_SEC_IF_OPEN();
+						m_Txt_flags ^= (byte)ID.Txt_Bold;
+						psrc += 2;
+						continue;
+					}
+					break;
+
+				case '~':
+					if (*(psrc + 1) == '~')
+					{
+						// キャンセル処理（トグル）
+						CLOSE_TEXT_SEC_IF_OPEN();
+						m_Txt_flags ^= (byte)ID.Txt_Cancel;
+						psrc += 2;
+						continue;
+					}
+					break;
+
+				case '_':
+					if (*(psrc + 1) == '_')
+					{
+						// 下線処理（トグル）
+						CLOSE_TEXT_SEC_IF_OPEN();
+						m_Txt_flags ^= (byte)ID.Txt_Under;
+						psrc += 2;
+						continue;
+					}
+					break;
+
+				case '`':
+					// Code 処理（トグル）
+					CLOSE_TEXT_SEC_IF_OPEN();
+					m_Txt_flags ^= (byte)ID.Txt_Code;
+					psrc++;
+					continue;
+				} // switch
+			} // else
+
+			//  -------------------------------------------------
+			// chr は、何らかの表示文字であると確定
 			if (ptr_at_pos_text_len == null)
 			{
-				// テキストセクションを開く
-				*pdst = (char)ID.Text;
+				// テキストセクションを開く（この時点では、param は必ず 0 となる）
+				*pdst = (ushort)((byte)ID.Text | m_Txt_flags);
 				ptr_at_pos_text_len = pdst + 1;
 				pdst += 2;
 			}
@@ -560,7 +604,34 @@ public unsafe void Text_section_compaction(byte* buf_top_byte)
 
 	// ptr_at_pos_text_len != null であるときは、text セクションが閉じていない、ということ
 	ushort* ptr_at_pos_text_len = null;
+	// 最初の text セクションが開かれるときに、値が設定される（param は常に 0）
+	ushort cur_ID_Txt_with_flags = 0;
 
+	void CLOSE_TEXT_SEC()
+	{
+		ushort text_len = (ushort)(pdst - ptr_at_pos_text_len - 1);
+		if (text_len == 0)
+		{
+			pdst = ptr_at_pos_text_len - 1;
+		}
+		else if (text_len > 0xff)
+		{
+			*ptr_at_pos_text_len = text_len;
+		}
+		else  // text_len <= 255 のときの処理
+		{
+			*(ptr_at_pos_text_len - 1) = (ushort)((text_len << 8) + cur_ID_Txt_with_flags);
+			ushort* p_org = ptr_at_pos_text_len + 1;
+			for (; text_len > 0; --text_len)
+			{ *(p_org - 1) = *p_org++; }
+
+			pdst--;
+		}
+		ptr_at_pos_text_len = null;
+	}
+
+	// ---------------------------------------------------------
+	// compaction 開始
 	while (psrc < pTmnt_src)
 	{
 		ushort chr = *psrc++;
@@ -569,52 +640,53 @@ public unsafe void Text_section_compaction(byte* buf_top_byte)
 			if (ptr_at_pos_text_len == null)
 			{
 				// text セクションを開く
-				*pdst = (ushort)ID.Text;
+				*pdst = chr;  // Txt_flags もそのまま書き込む（param は必ず 0）
+				cur_ID_Txt_with_flags = chr;
 				ptr_at_pos_text_len = pdst + 1;
 				pdst += 2;
+			}
+			else
+			{
+				// text セクションが連続するときの処理（Txt_flags に変更がないかを確認）
+				if (chr != cur_ID_Txt_with_flags)
+				{
+					// Txt_flags に変更があった場合の処理
+					CLOSE_TEXT_SEC();
+
+					// text セクションを新しく開く
+					*pdst = chr;  // Txt_flags もそのまま書き込む（param は必ず 0）
+					cur_ID_Txt_with_flags = chr;
+					ptr_at_pos_text_len = pdst + 1;
+					pdst += 2;
+				}
 			}
 
 			// テキストのコピー
 			ushort* pdst_textbody_top = pdst;
 			for (int i = *psrc++; i > 0; --i)
 			{ *pdst++ = *psrc++; }
-
-			// 行末の空白文字を削除
-			while (pdst > pdst_textbody_top)  // text_len == 0 のときを考慮
-			{
-				ushort c = *(pdst - 1);
-				if (c == Chr.SP || c == Chr.SP_ZEN) { pdst--; continue; }
-
-				break;
-			}
 		}
-		else
+		else  // text セクションでない場合の処理（End, ERR, BR, Div）
 		{
 			// text セクションが開いていた場合、それを閉じる
 			if (ptr_at_pos_text_len != null)
 			{
-				ushort text_len = (ushort)(pdst - ptr_at_pos_text_len - 1);
-				if (text_len == 0)
+				//「装飾がない」行末の空白文字を削除
+				if ((byte)*(ptr_at_pos_text_len - 1) == (byte)ID.Text)
 				{
-					pdst = ptr_at_pos_text_len - 1;
-				}
-				else if (text_len > 0xff)
-				{
-					*ptr_at_pos_text_len = text_len;
-				}
-				else  // text_len <= 255 のときの処理
-				{
-					*(ptr_at_pos_text_len - 1) = (ushort)((text_len << 8) + (ushort)ID.Text);
-					ushort* p_org = ptr_at_pos_text_len + 1;
-					for (; text_len > 0; --text_len)
-					{ *(p_org - 1) = *p_org++; }
+					for (long i = pdst - ptr_at_pos_text_len -1; i > 0; --i)  // text_len == 0 のときを考慮
+					{
+						ushort c = *(pdst - 1);
+						if (c == Chr.SP || c == Chr.SP_ZEN) { pdst--; continue; }
 
-					pdst--;
+						break;
+					}
 				}
-				ptr_at_pos_text_len = null;
+
+				CLOSE_TEXT_SEC();
 			}
 
-			*pdst++ = chr;
+			*pdst++ = chr;  // chr は ID.Txt を持たない
 		}
 	}  // while
 
