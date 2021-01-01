@@ -1,7 +1,9 @@
 #define ACTIVATE_SERVER
-#define CREATE_TEST_LEXED_CODE
+//#define CREATE_TEST_LEXED_CODE
+//#define TEST_Set_DirFileNames
 
 using System;
+using System.Text;
 using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -14,18 +16,33 @@ using System.Windows.Forms;
 
 namespace md_svr
 {
-	internal partial class MainForm : Form
+	// ＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜
+	// FileLister.INtfy_DeleteFile の実装は仮実装
+	// 本実装では、MD ファイルを管理するクラスに付与すること
+	public partial class MainForm : Form, FileLister.INtfy_DeleteFile
 	{
+		// ＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜
+		public void Ntfy_DeleteFile(string path)
+		{
+			MainForm.DBG_StdOut($"【Ntfy_DeleteFile】path-> {path}\r\n");
+		}
+
+
+
 		// リソースの節約
 		static public Font ms_meiryo_Ke_P_9pt = null;
 		static public Font ms_meiryo_8pt = null;
+
+		// false: little endian / true: BOM付加 / true: 例外スローあり
+		public static UnicodeEncoding ms_utf16_encoding = new UnicodeEncoding(false, true, true);
 
 		// ---------------------------------------------------------
 		static RichTextBox ms_RBox_stdout = null;
 
 		// ---------------------------------------------------------
+#if ACTIVATE_SERVER
 		static Task ms_task_MdSvr;
-
+#endif
 
 		// ＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜
 #if CREATE_TEST_LEXED_CODE
@@ -33,17 +50,25 @@ namespace md_svr
 		public static Write_WS_Buffer ms_DBG_write_WS_buf = new Write_WS_Buffer(ms_DBG_ws_buf);
 #endif
 
+#if TEST_Set_DirFileNames
+		static byte[] ms_TEST_SetDirFilesNames_ary_buf = new byte[10 * 1024];  // 10 kbytes
+		public static Write_WS_Buffer ms_TEST_SetDirFilesNames_WS_buf
+				= new Write_WS_Buffer(ms_TEST_SetDirFilesNames_ary_buf);
+#endif
 		// ------------------------------------------------------------------------------------
 		public MainForm()
 		{
 			InitializeComponent();
-	
+
 			// リソース節約のためのコード
 			ms_meiryo_Ke_P_9pt = new Font("MeiryoKe_PGothic", 9F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(128)));
 			ms_meiryo_8pt = new Font("メイリオ", 8.25F, FontStyle.Regular, GraphicsUnit.Point, ((byte)(128)));
 
 			m_Btn_close.Font = ms_meiryo_Ke_P_9pt;
 			m_RBox_stdout.Font = ms_meiryo_8pt;
+
+			// FileLister の static 変数の設定
+//			FileLister.ms_utf16_encoding = ms_utf16_encoding;
 
 			// ---------------------------------------------------------
 			ms_RBox_stdout = m_RBox_stdout;
@@ -53,22 +78,18 @@ namespace md_svr
 			// ---------------------------------------------------------
 			m_Btn_close.Click += OnClk_Close;
 
-		// ＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜＜
+			// ---------------------------------------------------------
+			System.IO.Directory.SetCurrentDirectory("md_root");
+			FileLister.ms_INtfy_DeleteFile = this;
+
 #if CREATE_TEST_LEXED_CODE
 			try
 			{
 				Lexer.LexFile(ms_DBG_write_WS_buf, "md_root/index.md");
 				StdOut("--- Lexing 処理完了\r\n");
 
-				string ret_str = ms_DBG_write_WS_buf.Simplify_Buf();
-				if (ret_str == null)
-				{
-					StdOut("--- Simplify_Buf 処理完了\r\n");
-				}
-				else
-				{
-					StdOut($"!!! Simplify_Buf でエラー検出 : {ret_str}\r\n");
-				}
+				ms_DBG_write_WS_buf.Simplify_Buf();
+				StdOut("--- Simplify_Buf 処理完了\r\n");
 			}
 			catch(Exception ex)
 			{
@@ -80,7 +101,9 @@ namespace md_svr
 
 			DBG_WS_Buffer.Show_WS_buf(ms_RBox_stdout, ms_DBG_ws_buf, ms_DBG_write_WS_buf.Get_idx_byte_cur());
 #endif
+
 #if ACTIVATE_SERVER
+			MdSvr.ms_utf16_encoding = ms_utf16_encoding;
 			ms_task_MdSvr = MdSvr.Spawn_Start();
 #endif
 		}
@@ -94,6 +117,15 @@ namespace md_svr
 			ms_RBox_stdout.AppendText(msg);
 		}
 
+		// ------------------------------------------------------------------------------------
+		public static void DBG_StdOut(string msg)
+		{
+			ms_RBox_stdout.SelectionColor = System.Drawing.Color.FromArgb(255, 80, 0);
+			ms_RBox_stdout.AppendText(DateTime.Now.ToString("[HH:mm:ss]　"));
+			ms_RBox_stdout.AppendText(msg);
+			ms_RBox_stdout.SelectionColor = System.Drawing.Color.Black;
+		}
+		
 		// ------------------------------------------------------------------------------------
 		async void OnClk_Close(object sender, EventArgs e)
 		{
@@ -116,6 +148,9 @@ namespace md_svr
 		// ------------------------------------------------------------------------------------
 		private void OnClk_Test(object sender, EventArgs e)
 		{
+#if TEST_Set_DirFileNames
+			FileLister.Set_DirFileNames(ms_TEST_SetDirFilesNames_WS_buf, "./");
+#endif
 		}
 
 		// ------------------------------------------------------------------------------------
