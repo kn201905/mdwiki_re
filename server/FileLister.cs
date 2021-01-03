@@ -1,7 +1,6 @@
 #define DBG_LOG_FileLister
 
 using System;
-using System.Text;
 using System.IO;
 using System.Collections.Generic;
 
@@ -22,9 +21,12 @@ static class FileLister
 	// ディレクトリパス -> DirInfo
 	static SortedDictionary<string, DirInfo> ms_DirInfos = new SortedDictionary<string, DirInfo>();
 
+	///////////////////////////////////////////////////////////////////////////////////////
+	// FileLister::DirInfo
+
 	class DirInfo
 	{
-		static long ms_base_tick = (new DateTime(2020, 1, 1)).Ticks;
+		readonly string mc_str_path_dir;  // DirInfo のパス（Enumerate などで使用する）
 
 		// SEC は、ms_base_tick からの経過秒
 		int m_SEC_Updated = (int)((DateTime.Now.Ticks - ms_base_tick) / 10_000_000);
@@ -38,28 +40,40 @@ static class FileLister
 		public SortedList<string, uint> m_files_in_dir = new SortedList<string, uint>();
 
 		// ------------------------------------------------------------------------------------
+		// static メンバ変数
+		static long ms_base_tick = (new DateTime(2020, 1, 1)).Ticks;
+
 		// m_files_in_dir から情報を削除するために利用される
 		static int ms_remove_idx_ary_pcs = 10;
 		static int[] msa_remove_idx_ary = new int[10];  // 暫定実装： 配列が不足したら 10 ずつ増やすことにした
 
 		// ------------------------------------------------------------------------------------
+		public DirInfo(string path_dir) { mc_str_path_dir = path_dir; }
+
+		public int Get_SEC_Updated() => m_SEC_Updated;
+
+		// ------------------------------------------------------------------------------------
 		// m_SEC_Updated 時刻以降に、ディレクトリに変化が検出された場合 true が返される
-		public bool IsNeed_Update(string path_dir)
+		public bool IsNeed_Update()
 		{
-			int SEC_wrt_tick = (int)((Directory.GetLastWriteTime(path_dir).Ticks - ms_base_tick) / 10_000_000);
+			int SEC_wrt_tick = (int)((Directory.GetLastWriteTime(mc_str_path_dir).Ticks - ms_base_tick) / 10_000_000);
 			return (SEC_wrt_tick > m_SEC_Updated);
 		}
 
 		// ------------------------------------------------------------------------------------
 		// m_files_in_dir のみが Update される（m_dirs_in_dir はチェックされないため注意）
-		public void Update(Write_WS_Buffer send_WS_buf, string path_dir)
+		public void Update_and_DirFileList(Write_WS_Buffer send_WS_buf, bool bNeed_DirNames)
 		{
 			m_SEC_Updated = (int)((DateTime.Now.Ticks - ms_base_tick) / 10_000_000);
+			send_WS_buf.Wrt_Num_int(m_SEC_Updated);
 
 			// ---------------------------------------------------------
 			// ディレクトリ名の設定
-			send_WS_buf.Wrt_ID_param(ID.Directory_Names, (byte)m_dirs_in_dir.Count);
-			foreach (string dname in m_dirs_in_dir) { send_WS_buf.Wrt_PStr(dname); }
+			if (bNeed_DirNames == true)
+			{
+				send_WS_buf.Wrt_ID_param(ID.Directory_Names, (byte)m_dirs_in_dir.Count);
+				foreach (string dname in m_dirs_in_dir) { send_WS_buf.Wrt_PStr(dname); }
+			}
 
 			// ---------------------------------------------------------
 			// ファイル名の設定
@@ -68,7 +82,7 @@ static class FileLister
 				int idx_byte_AtFName = send_WS_buf.Get_idx_byte_cur();
 				send_WS_buf.Skip_Wrt_ID();
 
-				var files = Directory.EnumerateFiles(path_dir);
+				var files = Directory.EnumerateFiles(mc_str_path_dir);
 				int cnt = 0;
 				m_exist_check_cnt++;  // 存在確認用のカウンタを１つ進める
 				foreach(string fpath in files)
@@ -76,7 +90,7 @@ static class FileLister
 					// md ファイル以外であれば処理しない
 					if (IsMdFile(fpath) == false) { continue; }
 
-					string fname = Get_FName(fpath);
+					string fname = Get_FName(fpath, true);
 
 					if (m_files_in_dir.ContainsKey(fname) == true)
 					{
@@ -123,7 +137,7 @@ static class FileLister
 
 						// リムーブ対象に登録した時点で、リムーブされることを通知する
 						// もし、Lexed されたデータが残っていたら削除すること
-						ms_INtfy_DeleteFile.Ntfy_DeleteFile(path_dir + it.Current.Key);
+						ms_INtfy_DeleteFile.Ntfy_DeleteFile(mc_str_path_dir + it.Current.Key);
 					}
 
 					idx_of_files++;
@@ -151,9 +165,10 @@ static class FileLister
 			foreach (var fdata in m_files_in_dir) { str_show += $"{fdata.Key}, {fdata.Value.ToString()} / "; }
 			MainForm.StdOut(str_show + "\r\n");
 		}
-	}
+	} // FileLister::DirInfo
 
 	///////////////////////////////////////////////////////////////////////////////////////
+	// FileLister
 
 	static unsafe bool IsMdFile(string fname)
 	{
@@ -172,7 +187,8 @@ static class FileLister
 
 	// ------------------------------------------------------------------------------------
 	// path から「/」以降のみが取り出される
-	static unsafe string Get_FName(string path)
+	// rmv_ext が true であるときは、後ろ３文字（.md）が取り除かれる
+	static unsafe string Get_FName(string path, bool rmv_ext)
 	{
 		fixed (char* path_top = path)
 		{
@@ -184,7 +200,15 @@ static class FileLister
 
 			// *psrc == '/'
 			psrc++;
-			return new string(psrc, 0, path.Length - (int)(psrc - path_top));
+			if (rmv_ext == false)
+			{ return new string(psrc, 0, path.Length - (int)(psrc - path_top)); }
+
+			// rmv_ext == true のとき。一応、文字列の長さもチェックしておくことにする
+			int len = path.Length - (int)(psrc - path_top) - 3;
+			if (len <= 0)
+			{ throw new Exception("!!! Get_FName() : len <= 0"); }
+
+			return new string(psrc, 0, len);
 		}
 	}
 
@@ -192,7 +216,8 @@ static class FileLister
 	// DirInfo を生成すると同時に、send_WS_buf にも情報をセットしてしまう
 	static DirInfo Crt_DirInfo(Write_WS_Buffer send_WS_buf, string path_dir)
 	{
-		DirInfo ret_dirinfo = new DirInfo();
+		DirInfo ret_dirinfo = new DirInfo(path_dir);
+		send_WS_buf.Wrt_Num_int(ret_dirinfo.Get_SEC_Updated());
 
 		// ---------------------------------------------------------
 		// ディレクトリ名の設定
@@ -205,7 +230,7 @@ static class FileLister
 			int cnt = 0;
 			foreach(string dpath in dirs)
 			{
-				string dname = Get_FName(dpath);
+				string dname = Get_FName(dpath, false);
 
 				ret_dirinfo.m_dirs_in_dir.Add(dname);
 				send_WS_buf.Wrt_PStr(dname);
@@ -230,7 +255,7 @@ static class FileLister
 				// md ファイル以外であれば処理しない
 				if (IsMdFile(fpath) == false) { continue; }
 
-				string fname = Get_FName(fpath);
+				string fname = Get_FName(fpath, true);
 
 				// m_exit_check_cnt の初期値は 0
 				ret_dirinfo.m_files_in_dir.Add(fname, 0);
@@ -244,19 +269,19 @@ static class FileLister
 
 #if DBG_LOG_FileLister
 		MainForm.DBG_StdOut($"【DBG_LOG_FileLister】Crt_DirInfo() がコールされました。 path_dir: {path_dir}\r\n");
-		ret_dirinfo.Show_toStdOut();
+//		ret_dirinfo.Show_toStdOut();
 #endif
 		return ret_dirinfo;
 	}
 
 	// ------------------------------------------------------------------------------------
-	// path_dir は、md_root からのパス。必ず「"./"」から始まる名前を渡すこと
+	// path_dir は、md_root からのパス。必ず「"./"」から始まり、「"/"」で終わる名前を渡すこと
 	// path_dir = "./" とすると、"md_root/" 内の結果が送信される
 	public static void Set_DirFileNames(Write_WS_Buffer send_WS_buf, string path_dir)
 	{
 		send_WS_buf.Flush();
-		send_WS_buf.Wrt_ID(ID.FileList);
-		send_WS_buf.Wrt_PStr(path_dir);
+		// 書き込み： ID +「ID_Text / path_dir」＋「ID_Text / path_dir の１つ上の親ディレクトリ（path_depth > 0 のとき）」
+		send_WS_buf.Wrt_ID_with_DirDath(ID.DirFileList, path_dir);
 
 		try
 		{
@@ -267,16 +292,20 @@ static class FileLister
 			}
 			else
 			{
-				if (dir_info.IsNeed_Update(path_dir) == true)
+				if (dir_info.IsNeed_Update() == true)
 				{
-					dir_info.Update(send_WS_buf, path_dir);
+					// true : Directory_Names を書き込む
+					dir_info.Update_and_DirFileList(send_WS_buf, true);
 				}
 				else
 				{
 #if DBG_LOG_FileLister
-					MainForm.DBG_StdOut("【DBG_LOG_FileLister】dir_info の Update 必要なし\r\n");
+					MainForm.DBG_StdOut($"【DBG_LOG_FileLister】dir_info の Update 必要なし。 path_dir: {path_dir}\r\n");
 //					dir_info.Show_toStdOut();
 #endif
+					// dir_info の Update が必要でない場合
+					send_WS_buf.Wrt_Num_int(dir_info.Get_SEC_Updated());
+
 					// ディレクトリ名の設定
 					send_WS_buf.Wrt_ID_param(ID.Directory_Names, (byte)dir_info.m_dirs_in_dir.Count);
 					foreach (string dname in dir_info.m_dirs_in_dir) { send_WS_buf.Wrt_PStr(dname); }
@@ -286,6 +315,10 @@ static class FileLister
 					foreach (var file_kvp in dir_info.m_files_in_dir) { send_WS_buf.Wrt_PStr(file_kvp.Key); }
 				}
 			}
+
+#if DBG_LOG_FileLister
+			MainForm.DBG_StdOut($"【DBG_LOG_FileLister】m_SEC_Updated : {dir_info.Get_SEC_Updated().ToString()}\r\n");
+#endif
 		}
 		catch (Exception ex)
 		{
@@ -295,6 +328,39 @@ static class FileLister
 		send_WS_buf.Wrt_ID_End();
 	}
 
+	// ------------------------------------------------------------------------------------
+	public static void OnFiles_inDir(Write_WS_Buffer send_WS_buf, string path_dir, int SEC_Updated_recv)
+	{
+		send_WS_buf.Flush();
+		send_WS_buf.Wrt_ID(ID.Files_inDir);
+		send_WS_buf.Wrt_PStr(path_dir);
+
+		if (ms_DirInfos.TryGetValue(path_dir, out DirInfo dir_info) == false)
+		{ throw new Exception($"不正なパラメータを受信 OnFiles_inDir / path_dir -> {path_dir}"); }
+
+		if (dir_info.IsNeed_Update() == true)
+		{
+			// dir_info の情報更新の必要がある場合
+			// false : Directory_Names は書き込まない
+			dir_info.Update_and_DirFileList(send_WS_buf, false);
+		}
+		else
+		{
+			// SEC_Updated_recv > dir_info.Get_SEC_Updated() となることはないが、、、
+			if (SEC_Updated_recv >= dir_info.Get_SEC_Updated())
+			{
+				// クライアント側の情報の更新は必要ない
+				send_WS_buf.Wrt_ID_End();
+				return;
+			}
+
+			// dir_info の情報更新は必要ないが（ファイルの個数等の変更なし）、クライアント側の情報の更新の必要はある場合
+			send_WS_buf.Wrt_Num_int(dir_info.Get_SEC_Updated());
+			var files_in_dir = dir_info.m_files_in_dir;
+			send_WS_buf.Wrt_ID_param(ID.File_Names, (byte)files_in_dir.Count);
+			foreach (var kvp in files_in_dir) { send_WS_buf.Wrt_PStr(kvp.Key); }
+		}
+	}
 
 } // static class FileLister
 } // md_svr
