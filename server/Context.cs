@@ -181,6 +181,22 @@ public async Task Spawn_Context(HttpListenerContext context, uint idx_context)
 					await m_write_WS_buf.SendAsync(m_WS, ms_cts_shutdown);
 					} continue;
 
+				case ID.MD_file: {
+					var (path_md_file, SEC_Updated, idx_byte_SEC_updated) = m_read_WS_buf.Read_Req_MD();
+					MainForm.StdOut($"path_md_file : {path_md_file} / SEC_Updated : {SEC_Updated.ToString()}\r\n");
+
+					// ID.MD_file -> ID_Text (path_dir) -> ID_Text (file name) は Receive時の値を流用
+					m_write_WS_buf.Set_idx_byte(idx_byte_SEC_updated);
+					m_write_WS_buf.Wrt_Num_int(1000);  // 1000 は試験値
+
+					Lexer.LexFile(m_write_WS_buf, path_md_file);
+					MainForm.StdOut("--- Lexing 処理完了\r\n");
+
+					m_write_WS_buf.Simplify_Buf();
+					MainForm.StdOut("--- Simplify_Buf 処理完了\r\n");
+
+					await m_write_WS_buf.SendAsync(m_WS, ms_cts_shutdown);
+					} continue;
 				}
 
 
