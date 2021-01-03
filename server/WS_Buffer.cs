@@ -3,56 +3,72 @@ using System.Text;
 
 namespace md_svr
 {
+
+/////////////////////////////////////////////////////////////////////////////////////
+// Read_WS_Buf
+
 class Read_WS_Buf
 {
 public static UnicodeEncoding ms_utf16_encoding;
 
-byte[] m_buf;
+byte[] m_ary_buf;
 
 int m_idx_byte = 0;
 int m_rem_ui16 = 0;  // コンストラクト時には、読み取りバッファは 0 であるはず
 
 byte m_param_cur = 0;
 string m_text_cur = null;
+int m_num_int_cur = 0;
 
 // ------------------------------------------------------------------------------------
 internal Read_WS_Buf(byte[] buf)
 {
-	m_buf = buf;
+	m_ary_buf = buf;
 }
 
 // ------------------------------------------------------------------------------------
 // 読み取りバッファが空になっている場合は、0 が返される
 // Read_ID() は、client から送られてきたデータを読み取るためだけにあることに注意
 // text セクションのコンパクションはされていない
-public byte Read_ID() 
+public ID Read_ID() 
 {
 	if (m_rem_ui16 == 0) { return 0; }
 
-	byte id_ret = m_buf[m_idx_byte];
-	m_param_cur = m_buf[m_idx_byte + 1];
+	ID id_ret = (ID)m_ary_buf[m_idx_byte];
+	m_param_cur = m_ary_buf[m_idx_byte + 1];
 
 	m_idx_byte += 2;
 	m_rem_ui16--;
 
-	if (id_ret == (byte)ID.Text)
+	m_text_cur = null;  // エラー顕在化のために、m_text_cur だけはクリアしておくことにした
+	switch (id_ret)
 	{
-		if (m_rem_ui16 == 0)
-		{ throw new Exception("Read_WS_Buf.Read_ID() : m_rem_ui16 == 0"); }
+		case ID.Text: {
+			if (m_rem_ui16 == 0)
+			{ throw new Exception("Read_WS_Buf.Read_ID() : m_rem_ui16 == 0"); }
 		
-		int len_txt = m_buf[m_idx_byte] + (m_buf[m_idx_byte + 1] << 8);
-		if (m_rem_ui16 <= len_txt)
-		{ throw new Exception("Read_WS_Buf.Read_ID() : len_txt >= m_rem_ui16"); }
+			int len_txt = m_ary_buf[m_idx_byte] + (m_ary_buf[m_idx_byte + 1] << 8);
+			if (m_rem_ui16 <= len_txt)
+			{ throw new Exception("Read_WS_Buf.Read_ID() : len_txt >= m_rem_ui16"); }
 
-		// 第２引数、第３引数ともに、バイト数で表していることに注意
-		m_text_cur = ms_utf16_encoding.GetString(m_buf, m_idx_byte + 2, len_txt << 1);
+			// 第２引数、第３引数ともに、バイト数で表していることに注意
+			m_text_cur = ms_utf16_encoding.GetString(m_ary_buf, m_idx_byte + 2, len_txt << 1);
 
-		m_idx_byte += 2 + (len_txt << 1);
-		m_rem_ui16 -= len_txt + 1;
-	}
-	else
-	{
-		m_text_cur = null;
+			m_idx_byte += 2 + (len_txt << 1);
+			m_rem_ui16 -= len_txt + 1;
+		} break;
+
+		case ID.Num_int:
+			unsafe
+			{
+				fixed (byte* ary_buf_top = m_ary_buf)
+				{
+					m_num_int_cur = *(int*)(ary_buf_top + m_idx_byte);
+				}
+			}
+			m_idx_byte += 4;
+			m_rem_ui16 -= 2;
+			break;
 	}
 
 	return id_ret;
@@ -61,6 +77,7 @@ public byte Read_ID()
 // ------------------------------------------------------------------------------------
 public byte Get_param_cur() => m_param_cur;
 public string Get_text_cur() => m_text_cur;
+public int Get_Num_int() => m_num_int_cur;
 
 // WebSocket で読み込まれたバイト数を設定することを考えている
 public void Renew(int len_bytes)
@@ -73,11 +90,14 @@ public void Renew(int len_bytes)
 }
 }  // Read_WS_Buf
 
+
 /////////////////////////////////////////////////////////////////////////////////////
+// Write_WS_Buffer
 
 public class Write_WS_Buffer
 {
-byte[] m_buf;
+// メンバ変数は３つだけ
+byte[] m_ary_buf;
 
 int m_idx_byte;
 int m_rem_ui16;
@@ -85,23 +105,34 @@ int m_rem_ui16;
 const int EN_Margin_buf = 10;  // TAB、テキストセクションの生成などのマージン
 
 // ------------------------------------------------------------------------------------
+// コンストラクタ
 public Write_WS_Buffer(byte[] buf)
 {
-	m_buf = buf;
+	m_ary_buf = buf;
 
 	m_idx_byte = 0;
 	m_rem_ui16 = (buf.Length >> 1) - 2;  // エラー報告と、ID.End を必ず書き込めるようにするため
 }
 
 // ------------------------------------------------------------------------------------
-public byte[] Get_buf() => m_buf;
+//public byte[] Get_ary_buf() => m_ary_buf;
 public int Get_idx_byte_cur() => m_idx_byte;
 
 // ------------------------------------------------------------------------------------
 public void Flush()
 {
 	m_idx_byte = 0;
-	m_rem_ui16 = (m_buf.Length >> 1) - 2;  // エラー報告と、ID.End を必ず書き込めるようにするため
+	m_rem_ui16 = (m_ary_buf.Length >> 1) - 2;  // エラー報告と、ID.End を必ず書き込めるようにするため
+}
+
+// ------------------------------------------------------------------------------------
+public System.Threading.Tasks.Task SendAsync(
+		System.Net.WebSockets.WebSocket WS, System.Threading.CancellationTokenSource cts_shutdown)
+{
+	return WS.SendAsync(
+			new ArraySegment<byte>(m_ary_buf, 0, m_idx_byte)
+			, System.Net.WebSockets.WebSocketMessageType.Binary, true  // endOfMessage
+			, cts_shutdown.Token );
 }
 
 // ------------------------------------------------------------------------------------
@@ -110,8 +141,8 @@ public void Wrt_ID_End()
 	if (m_rem_ui16 < -1)
 	{ throw new Exception("原因不明。バッファ不足で ID.End の書き込みができない。"); }
 
-	m_buf[m_idx_byte] = (byte)ID.End;
-	m_buf[m_idx_byte + 1] = 0;
+	m_ary_buf[m_idx_byte] = (byte)ID.End;
+	m_ary_buf[m_idx_byte + 1] = 0;
 	m_idx_byte += 2;
 	m_rem_ui16--;
 }
@@ -121,8 +152,8 @@ public void Wrt_ID(ID id)
 {
 	if (m_rem_ui16 <= 0) { this.THROW_Overflow_ERR(); }
 
-	m_buf[m_idx_byte] = (byte)id;
-	m_buf[m_idx_byte + 1] = 0;
+	m_ary_buf[m_idx_byte] = (byte)id;
+	m_ary_buf[m_idx_byte + 1] = 0;
 	m_idx_byte += 2;
 	m_rem_ui16--;
 }
@@ -132,8 +163,8 @@ public void Wrt_ID_param(ID id, byte param)
 {
 	if (m_rem_ui16 <= 0) { this.THROW_Overflow_ERR(); }
 
-	m_buf[m_idx_byte] = (byte)id;
-	m_buf[m_idx_byte + 1] = param;
+	m_ary_buf[m_idx_byte] = (byte)id;
+	m_ary_buf[m_idx_byte + 1] = param;
 	m_idx_byte += 2;
 	m_rem_ui16--;
 }
@@ -148,8 +179,8 @@ public void Skip_Wrt_ID()
 
 public void Wrt_ID_param_At(int idx_byte, ID id, byte param)
 {
-	m_buf[idx_byte] = (byte)id;
-	m_buf[idx_byte + 1] = param;
+	m_ary_buf[idx_byte] = (byte)id;
+	m_ary_buf[idx_byte + 1] = param;
 }
 
 // ------------------------------------------------------------------------------------
@@ -162,7 +193,7 @@ public void Wrt_PStr(string src_str)
 	unsafe 
 	{
 		fixed (char* psrc_top = src_str)
-		fixed (byte* pdst_top = m_buf)
+		fixed (byte* pdst_top = m_ary_buf)
 		{
 			char* psrc = psrc_top;
 			char* pdst = (char*)(pdst_top + m_idx_byte);
@@ -175,7 +206,7 @@ public void Wrt_PStr(string src_str)
 			{ *pdst++ = *psrc++; }
 
 			m_idx_byte = (int)(((byte*)pdst) - pdst_top);
-			m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
+			m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
 		}
 	}
 }
@@ -192,7 +223,7 @@ public void Wrt_PFName(string src_str)
 	unsafe 
 	{
 		fixed (char* psrc_top = src_str)
-		fixed (byte* pdst_top = m_buf)
+		fixed (byte* pdst_top = m_ary_buf)
 		{
 			char* psrc_tmnt = psrc_top + len_str;
 			char* pdst = (char*)(pdst_top + m_idx_byte);
@@ -212,7 +243,83 @@ public void Wrt_PFName(string src_str)
 			m_idx_byte = (int)(((byte*)pdst) - pdst_top);
 		}
 	}
-	m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
+	m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
+}
+
+// ------------------------------------------------------------------------------------
+// ID +「ID_Text / path_dir」＋「ID_Text / path_dir の１つ上の親ディレクトリ（path_depth > 0 のとき）」
+public unsafe void Wrt_ID_with_DirDath(ID id, string path_dir)
+{
+	int len_to_wrt = path_dir.Length * 2 + 3;  // +3 : id_param + id_text + 文字数
+	if (m_rem_ui16 < len_to_wrt)
+	{
+		m_rem_ui16 += WS_Buf_Pool.Expand_MemBlk(ref m_ary_buf) / 2;
+	}
+
+	fixed (byte* pary_buf_top = m_ary_buf)
+	fixed (char* ppath_dir_top = path_dir)
+	{
+		// id 書き込みは、path depth が分かってから書き込む
+		char* pdst = (char*)(pary_buf_top + m_idx_byte + 2);
+		*pdst = (char)ID.Text;
+		*(pdst + 1) = (char)path_dir.Length;
+		*(uint*)(pdst + 2) = 0x002f_002e;  // 「./」の書き込み
+		pdst += 4;
+
+		// path_dir の書き込み
+		char* psrc = ppath_dir_top + 2;  // 「./」を skip
+		char* psrc_at_slash_next_prev = null;  // 親ディレクトリ検出用
+		char* psrc_at_slash_next_new = psrc;  // = ppath_dir_top + 2;
+		ushort cnt_depth = 0;
+		while (true)
+		{
+			char chr = *psrc++;
+			if (chr == 0) { break; }
+			if (chr == '/') {
+				psrc_at_slash_next_prev = psrc_at_slash_next_new;
+				psrc_at_slash_next_new = psrc;
+				cnt_depth++;
+			}
+			*pdst++ = chr;
+		}
+
+		// path_depth > 0 のとき、親ディレクトリの書き込み
+		if (cnt_depth > 0)
+		{
+			*pdst = (char)ID.Text;
+			*(pdst + 1) = (char)(psrc_at_slash_next_prev - ppath_dir_top);
+			*(uint*)(pdst + 2) = 0x002f_002e;  // 「./」の書き込み
+			pdst += 4;
+
+			psrc = ppath_dir_top + 2;  // 「./」を skip
+			while (psrc < psrc_at_slash_next_prev) { *pdst++ = *psrc++; }
+		}
+
+		// id と path_depth の書き込み
+		*(ushort*)(pary_buf_top + m_idx_byte) = (ushort)((cnt_depth << 8) + (ushort)ID.DirFileList);
+
+		m_idx_byte = (int)(((byte*)pdst) - pary_buf_top);
+		m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
+	}
+}
+
+// ------------------------------------------------------------------------------------
+public unsafe void Wrt_Num_int(int num)  // ID + 4 bytes の書き込み（ui16 -> ３文字）
+{
+	if (m_rem_ui16 < 3)
+	{
+		m_rem_ui16 += WS_Buf_Pool.Expand_MemBlk(ref m_ary_buf) / 2;
+	}
+
+	fixed (byte* pary_buf_top = m_ary_buf)
+	{
+		byte* pdst = pary_buf_top + m_idx_byte;
+		*(ushort*)pdst = (ushort)ID.Num_int;
+		*(int*)(pdst + 2) = num;
+	}
+
+	m_idx_byte += 6;
+	m_rem_ui16 -= 3;
 }
 
 // ------------------------------------------------------------------------------------
@@ -221,8 +328,8 @@ public void THROW_Overflow_ERR()
 	if (m_rem_ui16 >= 0)
 	{
 		// この場合は、バッファにエラー報告を書き入れる余地がまだある
-		m_buf[m_idx_byte] = (byte)ID.ERR_OVERFLOW;
-		m_buf[m_idx_byte + 1] = 0;
+		m_ary_buf[m_idx_byte] = (byte)ID.ERR_OVERFLOW;
+		m_ary_buf[m_idx_byte + 1] = 0;
 		m_idx_byte += 2;
 		m_rem_ui16--;
 	}
@@ -230,8 +337,8 @@ public void THROW_Overflow_ERR()
 	if (m_rem_ui16 >= -1)
 	{
 		// この場合は、バッファに End を書き入れる余地がまだある
-		m_buf[m_idx_byte] = (byte)ID.End;
-		m_buf[m_idx_byte + 1] = 0;
+		m_ary_buf[m_idx_byte] = (byte)ID.End;
+		m_ary_buf[m_idx_byte + 1] = 0;
 		m_idx_byte += 2;
 		m_rem_ui16--;
 	}
@@ -248,7 +355,7 @@ public unsafe void THROW_ERR(ushort* psrc, string err_msg)
 {
 	if (m_rem_ui16 < EN_Margin_buf) { this.THROW_Overflow_ERR(); }
 
-	fixed (byte* pdst_top = m_buf)
+	fixed (byte* pdst_top = m_ary_buf)
 	{
 		ushort* pdst = (ushort*)(pdst_top + m_idx_byte);
 
@@ -297,7 +404,7 @@ public unsafe void THROW_ERR(ushort* psrc, string err_msg)
 
 		*ptr_at_pos_text_len = (ushort)((pdst - ptr_at_pos_text_len) - 1);  // 文字数の書き込み
 		m_idx_byte = (int)(((byte*)pdst) - pdst_top);
-		m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
+		m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
 	}
 
 	this.Wrt_ID_End();
@@ -321,7 +428,7 @@ public unsafe ushort* Cosume_CodeLine(ushort* psrc)
 
 	// Text ブロックの書き込み
 	// dest 側の fixed
-	fixed (byte* pdst_top = m_buf)
+	fixed (byte* pdst_top = m_ary_buf)
 	{
 		ushort* pdst = (ushort*)(pdst_top + m_idx_byte);
 		ushort* pTmnt_dst = pdst + m_rem_ui16 - EN_Margin_buf;
@@ -354,7 +461,7 @@ public unsafe ushort* Cosume_CodeLine(ushort* psrc)
 
 		*pdst_at_pos_text_len = (ushort)((pdst - pdst_at_pos_text_len) - 1);  // 文字数の書き込み
 		m_idx_byte = (int)(((byte*)pdst) - pdst_top);
-		m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
+		m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
 	}
 
 	if (Err_ID == ID.ERR_OVERFLOW) { this.THROW_Overflow_ERR(); }
@@ -384,7 +491,7 @@ public unsafe ushort* Consume_NormalLine(ushort* psrc)
 	string Err_msg = null;
 
 	// dest 側の fixed
-	fixed (byte* pdst_top = m_buf)
+	fixed (byte* pdst_top = m_ary_buf)
 	{
 		ushort* pdst = (ushort*)(pdst_top + m_idx_byte);
 		ushort* pTmnt_dst = pdst + m_rem_ui16 - EN_Margin_buf;
@@ -510,7 +617,7 @@ public unsafe ushort* Consume_NormalLine(ushort* psrc)
 		CLOSE_TEXT_SEC_IF_OPEN();
 
 		m_idx_byte = (int)(((byte*)pdst) - pdst_top);
-		m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
+		m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
 	}
 
 	if (Err_ID == ID.ERR_OVERFLOW) { this.THROW_Overflow_ERR(); }
@@ -527,7 +634,7 @@ public unsafe void Simplify_Buf()
 {
 	try
 	{
-		fixed (byte* buf_top_byte = m_buf)
+		fixed (byte* buf_top_byte = m_ary_buf)
 		{
 			Text_section_compaction(buf_top_byte);
 
@@ -700,7 +807,7 @@ public unsafe void Text_section_compaction(byte* buf_top_byte)
 	// -------------------------------------------------------
 	// 終了処理 : m_idx_byte, m_rem_ui16 を再設定する
 	m_idx_byte = (int)(((byte*)pdst) - buf_top_byte);
-	m_rem_ui16 = (m_buf.Length - m_idx_byte) >> 1;
+	m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
 }
 
 
