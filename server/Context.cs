@@ -20,6 +20,7 @@ static class WS_Buf_Pool
 
 	public class MemBlock : IDisposable
 	{
+		// メンバ変数は３つだけ
 		public MemBlock m_next_blk = null;
 		public byte[] m_ary_buf = null;
 		public bool mb_IsUsed = false;
@@ -68,6 +69,23 @@ static class WS_Buf_Pool
 		return ret_mem_blk;
 	}
 
+	// -------------------------------------------------------------------------
+	// 戻り値は、増加された「バイト数」
+	public static int Expand_MemBlk(ref byte[] ary_buf)
+	{
+		int bytes_old = ary_buf.Length;  // bytes_old <= ms_cur_mem_size であるはず
+		if (bytes_old > ms_cur_mem_size)  // エラー顕在化
+		{ throw new Exception("WS_Buf_Pool.Expand_MemBlk() :  bytes_old > ms_cur_mem_size"); }
+
+		if (bytes_old == ms_cur_mem_size)
+		{
+			ms_cur_mem_size += EN_mem_add_size;
+		}
+		
+		Array.Resize(ref ary_buf, ms_cur_mem_size);
+		return ms_cur_mem_size - bytes_old;
+	}
+
 } // WS_Buf_Pool
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -90,7 +108,7 @@ Write_WS_Buffer m_write_WS_buf = null;
 WebSocket m_WS = null;
 
 // ------------------------------------------------------------------------------------
-public async Task Spawn_Context(HttpListenerContext context)
+public async Task Spawn_Context(HttpListenerContext context, uint idx_context)
 {
 	// AcceptWebSocketAsync() は、キャンセルトークンをサポートしていない
 	// 引数： サポートされている WebSocket サブプロトコル
@@ -115,11 +133,9 @@ public async Task Spawn_Context(HttpListenerContext context)
 #else
 			// まずはルートフォルダのファイル情報を送信しておく
 			FileLister.Set_DirFileNames(m_write_WS_buf, "./");
-
-			await m_WS.SendAsync(
-					new ArraySegment<byte>(mem_blk.m_ary_buf, 0, m_write_WS_buf.Get_idx_byte_cur())
-					, WebSocketMessageType.Binary, true, ms_cts_shutdown.Token);
+			await m_write_WS_buf.SendAsync(m_WS, ms_cts_shutdown);
 #endif
+
 			while (true)
 			{
 				WebSocketReceiveResult rslt = await m_WS.ReceiveAsync(
@@ -136,11 +152,52 @@ public async Task Spawn_Context(HttpListenerContext context)
 					break;
 				}
 
-				// 今は、index.md のみを解析するようにしている
-//						string ret_str = Lexer.LexFile(m_write_WS_buf, "md_root/index.md");
+				m_read_WS_buf.Renew(rslt.Count);
+				switch (m_read_WS_buf.Read_ID())
+				{
+				case ID.DirFileList: {
+					ID id = m_read_WS_buf.Read_ID();
+					if (id != ID.Text)
+					{ throw new Exception($"不正なパラメータを受信 DirFileList / id -> {((byte)id).ToString()}"); }
 
-				string str_recv = ms_utf16_encoding.GetString(mem_blk.m_ary_buf, 0, rslt.Count);
-				MainForm.StdOut(str_recv);
+					FileLister.Set_DirFileNames(m_write_WS_buf, m_read_WS_buf.Get_text_cur());
+					await m_write_WS_buf.SendAsync(m_WS, ms_cts_shutdown);
+					} continue;
+
+				case ID.Files_inDir: {
+					ID id = m_read_WS_buf.Read_ID();
+					if (id != ID.Text)
+					{ throw new Exception($"不正なパラメータを受信 Files_inDir / id -> {((byte)id).ToString()}"); }
+
+					string str_path_dir = m_read_WS_buf.Get_text_cur();
+
+					id = m_read_WS_buf.Read_ID();
+					if (id != ID.Num_int)
+					{ throw new Exception($"不正なパラメータを受信 Files_inDir / id -> {((byte)id).ToString()}"); }
+
+					int SEC_Updated_recv = m_read_WS_buf.Get_Num_int();
+
+					FileLister.OnFiles_inDir(m_write_WS_buf, str_path_dir, SEC_Updated_recv);
+					await m_write_WS_buf.SendAsync(m_WS, ms_cts_shutdown);
+					} continue;
+
+				}
+
+
+
+
+				MainForm.StdOut($"--- ReceiveAsync() : 受信バイト数 -> {rslt.Count}\r\n");
+				MainForm.HexDump(mem_blk.m_ary_buf, 0, 20);
+				DBG_WS_Buffer.Show_WS_buf(MainForm.ms_RBox_stdout, mem_blk.m_ary_buf, rslt.Count);
+
+
+
+
+				// 今は、index.md のみを解析するようにしている
+//				string ret_str = Lexer.LexFile(m_write_WS_buf, "md_root/index.md");
+
+//				string str_recv = ms_utf16_encoding.GetString(mem_blk.m_ary_buf, 0, rslt.Count);
+//				MainForm.StdOut(str_recv);
 			}
 
 			await m_WS.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "接続を終了します", ms_cts_shutdown.Token);
@@ -160,6 +217,7 @@ public async Task Spawn_Context(HttpListenerContext context)
 		}
 	}
 
+	MdSvr.Remove_task_context(idx_context);
 	MainForm.StdOut("--- WebSocket 切断完了\r\n");
 }
 
