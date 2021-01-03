@@ -41,22 +41,27 @@ const g_WS = new function() {
 		};
 
 		m_ws.onmessage = (event) => {
-			g_pnl_Log.Log('--- メッセージを受信しました。');
-
 			g_TStream_Reader.SetArrayBuffer(event.data);
 
 			switch (g_TStream_Reader.Consume_NextID()) {
 			case ID_Lexed_MD:
+				g_pnl_Log.Log('--- ID_Lexed_MD を受信しました。@main.js');
 				// BuildTree に渡した要素は、子要素が全て remove されるため注意
 				g_DomTree.BuildTree(g_e_DomTreeArea);
 				return;
 
-			case ID_FileList:
-				g_FileLister.Show_Using_TStream_Reader(g_TStream_Reader);
+			case ID_DirFileList:
+				g_pnl_Log.Log('--- ID_DirFileList を受信しました。@main.js');
+				g_FileLister.Consume_DirFileList();
+				return;
+				
+			case ID_Files_inDir:
+				g_pnl_Log.Log('--- ID_Files_inDir を受信しました。@main.js');
+				g_FileLister.Consume_Files_inDir();
 				return;
 
 			default:
-				g_pnl_Log.Log("!!! 不明な ID を受信しました。");
+				g_pnl_Log.Log("!!! 不明な ID を受信しました。@main.js");
 			}
 		};
 	};
@@ -66,7 +71,7 @@ const g_WS = new function() {
 			g_pnl_Log.Log('!!! m_state != STT_Conncted の状態で、メッセージを送信しようとしました。');
 			return;
 		}
-		g_pnl_Log.Log('--- g_Write_Buf の送信実行');
+//		g_pnl_Log.Log('--- g_Write_Buf の送信実行');
 		m_ws.send(g_Write_Buf.Get_u16ary_Cur());
 	};
 
@@ -87,24 +92,7 @@ const g_WS = new function() {
 // -----------------------------------------------------------------------
 const g_GUI = new function() {
 	this.Update = (stt) => {
-		g_pnl_Status.GUI_Update(stt);
 		g_pnl_SvrConnect.GUI_Update(stt);
-		g_pnl_SendMsg.GUI_Update(stt);
-	};
-};
-
-const g_pnl_Status = new function() {
-	const m_e_status = g_e_body.Add_Div();
-	m_e_status.style.fontWeight = 'bold';
-	m_e_status.style.margin = '5px';
-	
-	this.GUI_Update = (stt) => {
-		switch (stt) {
-		case STT_Null: m_e_status.textContent = 'ステータス： ready to connect'; break;
-		case STT_Connecting: m_e_status.textContent = 'ステータス： connecting...'; break;
-		case STT_Conncted: m_e_status.textContent = 'ステータス： 接続中'; break;
-		case STT_Closing: m_e_status.textContent = 'ステータス： closing...'; break;
-		}
 	};
 };
 
@@ -145,28 +133,6 @@ const g_pnl_SvrConnect = new function() {
 	};
 };
 
-const g_pnl_SendMsg = new  function() {
-	const m_e_panel = g_e_body.Add_Div();
-	m_e_panel.style.margin = '5px 0';
-	m_e_panel.Add_TxtNode('送信メッセージ: ');
-
-	const m_e_input_msg = m_e_panel.Add_Input();
-	m_e_input_msg.style.marginRight = '1em';
-	
-	const m_e_btn_send = m_e_panel.Add_Btn('送信');
-
-	this.GUI_Update = (stt) => {
-		if (stt == STT_Conncted) {
-			m_e_input_msg.disabled = false;
-			m_e_btn_send.disabled = false;
-		}
-		else {
-			m_e_input_msg.disabled = true;
-			m_e_btn_send.disabled = true;
-		}
-	};
-};
-
 const g_pnl_Log = new function() {
 	const m_e_panel = g_e_body.Add_Div();
 
@@ -177,6 +143,7 @@ const g_pnl_Log = new function() {
 	e_title.textContent = '--- Log ---　';
 
 	const m_e_btn_clear_log = e_stg.Add_DivBtn('ログ クリア');
+	m_e_btn_clear_log.style.fontSize = '0.7rem'
 	m_e_btn_clear_log.onclick = () => { e_txt_area.value = ''; };
 
 	const e_txt_area = m_e_panel.Add_TxtArea();
@@ -188,7 +155,7 @@ const g_pnl_Log = new function() {
 	};
 };
 
-g_FileLister.Set_e_ListArea(g_e_body.Add_Div());
+g_FileLister.Set_e_panel(g_e_body.Add_Div());
 
 const g_e_DomTreeArea = g_e_body.Add_Div();
 
