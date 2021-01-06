@@ -13,6 +13,8 @@ const g_TStream_Reader = new function() {
 
 	let m_param_cur = 0;
 	let m_text_cur = null;
+	let m_num_int = 0;
+	let m_FLG_no_BR_above = 0;
 
 	this.SetArrayBuffer = (array_buffer) => {
 		m_ary_buffer = array_buffer;
@@ -51,25 +53,36 @@ const g_TStream_Reader = new function() {
 				m_text_cur = g_utf16_to_str.decode(new Uint16Array(m_ary_buffer, (m_idx + 1) * 2, pcs));
 				m_idx += 1 + pcs;
 			}
+			return val_id;
 		}
-		else {
-			m_text_cur = null;
 
-			switch (val_id) {
-			case ID_Num_int:
-				m_param_cur = m_u16_buf[m_idx] + m_u16_buf[m_idx + 1] * 0x10000;
-				m_idx += 2;
-				break;
-			}
+		m_text_cur = null;
+		
+		if (val_id & ID_Div) {
+			m_FLG_no_BR_above = m_param_cur & Param_no_BR_above;
+			m_param_cur &= Param_no_BR_above_mask;
+			
+			return val_id;
+		}
+		
+		m_FLG_no_BR_above = 0;
+		
+		if (val_id == ID_Num_int) {
+			m_num_int = m_u16_buf[m_idx] + m_u16_buf[m_idx + 1] * 0x10000;
+			m_idx += 2;
 		}
 
 		return val_id;
 	};
+	
+	this.FLG_no_BR_above = () => m_FLG_no_BR_above;
 
 	this.Get_idx_cur = () => m_idx;
-	this.Set_idx_cur = (idx) => { m_idx = idx; }
 	this.Get_param_cur = () => m_param_cur;
 	this.Get_text_cur = () => m_text_cur;
+	this.Get_num_int = () => m_num_int;
+
+	this.Set_idx_cur = (idx) => { m_idx = idx; }
 };
 
 /////////////////////////////////////////////////////////////////////////////
@@ -135,6 +148,6 @@ const g_Write_Buf = new function() {
 		// 第２引数はバイト、第３引数は u16 で指定すること
 		return new Uint16Array(m_ary_buffer, 0, m_idx_u16);
 	};
-
+	
 	this.Flush = () => { m_idx_u16 = 0; }
 };
