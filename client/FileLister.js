@@ -1,15 +1,14 @@
 'use strict'
 
+const IDX_str_dir_path = 0;
+const IDX_SEC_Updated = 1;
+const IDX_path_depth = 2;
+const IDX_e_div_dir_selected = 3;
+const IDX_e_div_dirs = 4;
+const IDX_e_div_file_selected = 5;
+const IDX_e_div_files = 6;
+	
 const g_FileLister = new function() {
-	const IDX_str_dir_path = 0;
-	const IDX_SEC_Updated = 1;
-	const IDX_path_depth = 2;
-	const IDX_e_div_dir_selected = 3;
-	const IDX_e_div_dirs = 4;
-	const IDX_e_div_file_selected = 5;
-	const IDX_e_div_files = 6;
-	const IDX_ary_e_dom_tree = 7;
-
 	let m_e_panel;
 	let m_pnl_DirArea;
 	let m_pnl_FileArea;
@@ -18,7 +17,6 @@ const g_FileLister = new function() {
 	let m_path_depth_showed = 0;  // 現在表示中の path_depth
 
 	// dir_info のフォーマット（dir_path の末尾は「/」）
-	// str_dir_path がルート（./）である場合、親 dir_info は null
 	// [str_dir_path, SEC_Updated, path_depth,
 	//		e_div_dir_selected, e_div_dirs, e_div_file_selected, e_div_files, [ e_dom_tree ]]
 	const m_dirInfos = {};
@@ -224,7 +222,7 @@ const g_FileLister = new function() {
 
 		// path depth
 		const path_depth = g_TStream_Reader.Get_param_cur();
-		g_pnl_Log.Log('▶ path depth : ' + path_depth);
+//		g_pnl_Log.Log('▶ path depth : ' + path_depth);
 
 		// path_dir の取得
 		if ((id = g_TStream_Reader.Consume_NextID()) != ID_Text) {
@@ -233,6 +231,8 @@ const g_FileLister = new function() {
 			return;
 		}
 		const str_dir_path = g_TStream_Reader.Get_text_cur();
+		g_pnl_Log.Log(str_dir_path);
+
 		if (m_dirInfos[str_dir_path] != undefined) {
 			g_pnl_Log.Log("!!! Consume_DirFileList() : m_dirInfos[str_dir_path] が既に定義済みとなっていた");
 			return;
@@ -244,7 +244,7 @@ const g_FileLister = new function() {
 			g_TStream_ID_to_Log.Show(id);
 			return;
 		}
-		
+				
 		// ------------------------------------------------------
 		// g_TStream_Reader.Get_num_int() は SEC_Updated の値
 		const dir_info = [str_dir_path, g_TStream_Reader.Get_num_int(), path_depth];
@@ -296,8 +296,7 @@ const g_FileLister = new function() {
 
 		// ------------------------------------------------------
 		// ID_File_Names の処理
-		const ary_e_dom_tree = [];
-		
+	
 		if (g_TStream_Reader.Consume_NextID() != ID_File_Names) {
 			g_pnl_Log.Log("!!! 不正なフォーマット / Consume_DirFileList() -> ID_File_Names が来るはず");
 			return;
@@ -319,8 +318,6 @@ const g_FileLister = new function() {
 				const e_div_file_item = e_div_files.Add_DivTxt(str_file_name);
 				e_div_file_item.classList.add('File_li');
 				e_div_file_item.onclick = OnClk_FileName.bind(e_div_file_item, dir_info, str_file_name);
-				
-				ary_e_dom_tree.push(null);  // 空の e_dom_tree
 			}
 			dir_info.push(e_div_files);
 		}
@@ -328,7 +325,6 @@ const g_FileLister = new function() {
 			// pcs_files == 0 のとき
 			dir_info.push(null);
 		}
-		dir_info.push(ary_e_dom_tree);  // IDX_ary_e_dom_tree の要素
 
 		// ID_DirFileList の情報取得完了
 		m_dirInfos[str_dir_path] = dir_info;
@@ -347,13 +343,15 @@ const g_FileLister = new function() {
 		}
 		const str_dir_path = g_TStream_Reader.Get_text_cur();
 		const dir_info = m_dirInfos[str_dir_path];
+		g_pnl_Log.Log(str_dir_path);
+		
 		if (dir_info == undefined) {
 			throw new Error("g_FileLister.Consume_Files_inDir() : m_dirInfos[str_dir_path] が未定義");
 		}
 		
 		id = g_TStream_Reader.Consume_NextID();
 		if (id == ID_End) {
-			g_pnl_Log.Log("▶ クライアント側の情報更新の必要なし　@FileLister.js");
+			g_pnl_Log.Log("　　　クライアント側の情報更新の必要なし。");
 			
 			m_pnl_DirArea.Show(dir_info);
 			m_pnl_FileArea.Show(dir_info);
@@ -374,13 +372,24 @@ const g_FileLister = new function() {
 
 		dir_info[IDX_SEC_Updated] = SEC_Updated;
 		dir_info[IDX_e_div_file_selected] = null;
-		// 以降で、 IDX_e_div_files と IDX_ary_e_dom_tree を修正すればよい
+		// 以降で、 IDX_e_div_files を修正すればよい
 		
-		// サーバ側で、ファイルが空になった場合の処理
+		// e_div_files も ary_fnames_on_svr も、どちらも sorted になっていることに留意する
+		// e_div_files が、 ary_fnames_on_svr と同じものになるようにすれば良い
+		let e_div_files = dir_info[IDX_e_div_files];  // m_pnl_FileArea に登録されているものと同じものとなる
+		let ary_e_div_file = null;
+		if (e_div_files != null) {
+			ary_e_div_file = Array.from(e_div_files.children);
+		}
+		
+		// サーバ側のファイルが空になった場合の処理
 		if (pcs_fnames_on_svr == 0) {
-			m_pnl_FileArea.Remove(dir_info[IDX_e_div_files]);  // メモリリーク防止
-			dir_info[IDX_e_div_files] = null;
-			dir_info[IDX_ary_e_dom_tree] = [];
+			if (e_div_files != null) {
+				m_pnl_FileArea.Remove(e_div_files);  // メモリリーク防止
+				g_collection_e_dom_tree.Delete_on_dir(str_dir_path, ary_e_div_file);
+				
+				dir_info[IDX_e_div_files] = null;
+			}
 
 			m_pnl_DirArea.Show(dir_info);
 			m_pnl_FileArea.Show(dir_info);
@@ -396,26 +405,22 @@ const g_FileLister = new function() {
 			}
 			ary_fnames_on_svr.push(g_TStream_Reader.Get_text_cur());
 		}
-
-		// e_div_files も ary_fnames_on_svr も、どちらも sorted になっていることに留意する
-		// e_div_files が、 ary_fnames_on_svr と同じものになるようにすれば良い
-		let e_div_files = dir_info[IDX_e_div_files];  // m_pnl_FileArea に登録されているものを取得
-		const ary_e_dom_tree = dir_info[IDX_ary_e_dom_tree];
 		
-		// e_div_files から不要なものを削除する（e_dom_tree も同時に削除する）
-		if (ary_e_dom_tree.length > 0) {
-			const ary_e_div_file = Array.from(e_div_files.children);
+		// e_div_files から不要になったものを削除する（e_dom_tree も同時に削除する）
+		if (ary_e_div_file != null) {
 			
 			// インデックス値で削除するため、後方から検索する
 			for (let idx = ary_e_div_file.length - 1; idx >= 0; --idx) {
-				if (ary_fnames_on_svr.indexOf(ary_e_div_file[idx].textContent) < 0) {
-					e_div_files.removeChild(ary_e_div_file[idx]);
-					ary_e_dom_tree.splice(idx, 1);  // e_dom_tree の削除
+				let e_div = ary_e_div_file[idx];
+				
+				if (ary_fnames_on_svr.indexOf(e_div.textContent) < 0) {
+					g_collection_e_dom_tree.Delete_e_dom_tree_if_exists(str_dir_path + e_div.textContent);
+					e_div_files.removeChild(e_div);
 				}
 			}
 		}
 		
-		// e_div_files, ary_e_dom_tree に不足しているものを追加する
+		// e_div_files に不足しているものを追加する
 		const len_fnames = ary_fnames_on_svr.length;
 		let idx_fnames = 0;
 
@@ -454,7 +459,6 @@ const g_FileLister = new function() {
 					new_div.onclick = OnClk_FileName.bind(new_div, dir_info, str_fname);
 					
 					e_div_files.insertBefore(new_div, e_div);
-					ary_e_dom_tree.splice(idx_e_dom_tree, 0, null);
 					idx_e_dom_tree++;
 				}
 				idx_e_dom_tree++;
@@ -473,8 +477,7 @@ const g_FileLister = new function() {
 			new_div.onclick = OnClk_FileName.bind(new_div, dir_info, str_fname);
 			
 			e_div_files.appendChild(new_div);
-			ary_e_dom_tree.push(null);
-		}		
+		}
 		
 		m_pnl_DirArea.Show(dir_info);
 		
@@ -484,17 +487,6 @@ const g_FileLister = new function() {
 		else {
 			m_pnl_FileArea.Show(dir_info);
 		}
-		
-
-		
-		
-		
-		// e_dom_tree の SEC_Created も必要。。。
-		
-		
-				
-		
-		
 	};
 
 	// -----------------------------------------------------------------------
@@ -548,6 +540,7 @@ const g_FileLister = new function() {
 	};
 
 	// -----------------------------------------------------------------------
+	// file_name には「.md」が付加されていないことに注意
 	const OnClk_FileName = function(dir_info, file_name) {
 		const e_div_sel = dir_info[IDX_e_div_file_selected];
 		if (this == e_div_sel) { return; }
@@ -560,14 +553,15 @@ const g_FileLister = new function() {
 		dir_info[IDX_e_div_file_selected] = this;
 		
 		// MD ファイルの送信要求
+		const str_dir_path = dir_info[IDX_str_dir_path];
 		g_Write_Buf.Flush();
 		g_Write_Buf.Wrt_ID(ID_MD_file);
-		g_Write_Buf.Wrt_PStr(dir_info[IDX_str_dir_path]);
-		g_Write_Buf.Wrt_PStr(file_name);
-		
-		g_Write_Buf.Wrt_Num_int(0);  // 現時点では、暫定的に「0」
-		
+		g_Write_Buf.Wrt_PStr(str_dir_path);
+		g_Write_Buf.Wrt_PStr(file_name);		
+		// SEC_Created の設定
+		g_Write_Buf.Wrt_Num_int(g_collection_e_dom_tree.Get_SEC_Created_if_exists(str_dir_path + file_name));
+				
 		g_WS.Send_Write_Buf();
 	};
-};
+}; // g_FileLister
 
