@@ -75,6 +75,58 @@ public ID Read_ID()
 }
 
 // ------------------------------------------------------------------------------------
+// ファイル名と、SEC_Updated の両方を取得する
+// ファイルパスを取得するために、m_ary_buf の後方 2048 bytes 地点を利用する（疲れてきたからかなり雑、、、）
+// string は「./ ... / ... .md」の形式
+public unsafe (string, int, int) Read_Req_MD()
+{
+	fixed(byte* ary_buf_top = m_ary_buf)
+	{
+		char* psrc = (char*)(ary_buf_top + m_idx_byte);
+		char* psrc_top = psrc;
+		if (*psrc != (char)ID.Text)
+		{ throw new Exception("Read_Req_MD() : expected -> path_dir"); }
+
+		char* pdst = psrc + 1024;  // ここの値を変更した場合、ms_utf16_encoding の方も変更すること
+
+		// dir 情報の転送
+		int len_md_path = *(psrc + 1);
+		psrc += 2;
+		for (int i = len_md_path; i > 0; --i)
+		{ *pdst++ = *psrc++; }
+
+		if (*psrc != (char)ID.Text)
+		{ throw new Exception("Read_Req_MD() : expected -> file_name"); }
+
+		// ファイル名の転送
+		ushort len_file_name = *(psrc + 1);
+		len_md_path += len_file_name + 3;  // +3 :「.md」
+
+		psrc += 2;
+		for (ushort i = len_file_name; i > 0; --i)
+		{ *pdst++ = *psrc++; }
+
+		// SEC_Updated の設定
+		if (*psrc != (char)ID.Num_int)
+		{ throw new Exception("Read_Req_MD() : expected -> SEC_Updated"); }
+
+		// SEC_Updated の取り出し
+		int SEC_Updated = *(int*)(psrc + 1);
+
+		// offset byte の算出（SEC_Update の ID の位置）
+		int offset_byte = (int)(((byte*)psrc) - ((byte*)ary_buf_top));
+
+		// .md の付加
+		*(ulong*)pdst = 0x0064_006d_002e;
+
+		// 第２引数、第３引数ともに、バイト数で表していることに注意
+		m_text_cur = ms_utf16_encoding.GetString(m_ary_buf, m_idx_byte + 2048, len_md_path << 1);
+
+		return (m_text_cur, SEC_Updated, offset_byte);
+	}
+}
+
+// ------------------------------------------------------------------------------------
 public byte Get_param_cur() => m_param_cur;
 public string Get_text_cur() => m_text_cur;
 public int Get_Num_int() => m_num_int_cur;
@@ -115,7 +167,7 @@ public Write_WS_Buffer(byte[] buf)
 }
 
 // ------------------------------------------------------------------------------------
-//public byte[] Get_ary_buf() => m_ary_buf;
+public byte[] Get_ary_buf() => m_ary_buf;
 public int Get_idx_byte_cur() => m_idx_byte;
 
 // ------------------------------------------------------------------------------------
@@ -123,6 +175,18 @@ public void Flush()
 {
 	m_idx_byte = 0;
 	m_rem_ui16 = (m_ary_buf.Length >> 1) - 2;  // エラー報告と、ID.End を必ず書き込めるようにするため
+}
+
+// ------------------------------------------------------------------------------------
+public void Set_idx_byte(int idx_byte)
+{
+	if ((idx_byte & 1) == 1)
+	{
+		// idx_byte が奇数である場合はエラーとする
+		throw new Exception("Write_WS_Buffer.Set_idx_byte() : idx_byte の値が奇数となっています。");
+	}
+	m_idx_byte = idx_byte;
+	m_rem_ui16 = (m_ary_buf.Length - idx_byte) >> 1;
 }
 
 // ------------------------------------------------------------------------------------
@@ -139,7 +203,7 @@ public System.Threading.Tasks.Task SendAsync(
 public void Wrt_ID_End()
 {
 	if (m_rem_ui16 < -1)
-	{ throw new Exception("原因不明。バッファ不足で ID.End の書き込みができない。"); }
+	{ throw new Exception("Write_WS_Buffer.Wrt_ID_End() : 原因不明。バッファ不足で ID.End の書き込みができない。"); }
 
 	m_ary_buf[m_idx_byte] = (byte)ID.End;
 	m_ary_buf[m_idx_byte + 1] = 0;
@@ -148,9 +212,17 @@ public void Wrt_ID_End()
 }
 
 // ------------------------------------------------------------------------------------
+public void Expand_WS_buf()
+{
+	m_rem_ui16 += (WS_Buf_Pool.Expand_MemBlk(ref m_ary_buf) >> 1);
+	if (m_idx_byte + (m_rem_ui16 << 1) != m_ary_buf.Length)  //// エラー顕在化
+	{ throw new Exception("Write_WS_Buffer.Expand_WS_buf() : m_idx_byte + (m_rem_ui16 << 1) != m_ary_buf.Length"); }
+}
+
+// ------------------------------------------------------------------------------------
 public void Wrt_ID(ID id)
 {
-	if (m_rem_ui16 <= 0) { this.THROW_Overflow_ERR(); }
+	if (m_rem_ui16 <= 0) { this.Expand_WS_buf(); }
 
 	m_ary_buf[m_idx_byte] = (byte)id;
 	m_ary_buf[m_idx_byte + 1] = 0;
@@ -161,7 +233,7 @@ public void Wrt_ID(ID id)
 // ------------------------------------------------------------------------------------
 public void Wrt_ID_param(ID id, byte param)
 {
-	if (m_rem_ui16 <= 0) { this.THROW_Overflow_ERR(); }
+	if (m_rem_ui16 <= 0) { this.Expand_WS_buf(); }
 
 	m_ary_buf[m_idx_byte] = (byte)id;
 	m_ary_buf[m_idx_byte + 1] = param;
@@ -173,6 +245,8 @@ public void Wrt_ID_param(ID id, byte param)
 // Text では、ID, param の書き込みが後にずれる
 public void Skip_Wrt_ID()
 {
+	if (m_rem_ui16 <= 0) { this.Expand_WS_buf(); }
+
 	m_idx_byte += 2;
 	m_rem_ui16--;
 }
@@ -184,12 +258,12 @@ public void Wrt_ID_param_At(int idx_byte, ID id, byte param)
 }
 
 // ------------------------------------------------------------------------------------
-// ID.Text が自動的に書き込まれる
+// ID.Text が自動的に書き込まれる（ID_Text + 文字列長）
 public void Wrt_PStr(string src_str)
 {
-	if (m_rem_ui16 < EN_Margin_buf) { this.THROW_Overflow_ERR(); }
+	int len_str = src_str.Length;
+	if (m_rem_ui16 < len_str + 2) { this.Expand_WS_buf(); }
 
-	int len_to_wrt = Math.Min(src_str.Length, m_rem_ui16 - 3);
 	unsafe 
 	{
 		fixed (char* psrc_top = src_str)
@@ -199,10 +273,10 @@ public void Wrt_PStr(string src_str)
 			char* pdst = (char*)(pdst_top + m_idx_byte);
 
 			*pdst = (char)ID.Text;
-			*(pdst + 1) = (char)len_to_wrt;
+			*(pdst + 1) = (char)len_str;
 
 			pdst += 2;
-			for (; len_to_wrt > 0; --len_to_wrt)
+			for (; len_str > 0; --len_str)
 			{ *pdst++ = *psrc++; }
 
 			m_idx_byte = (int)(((byte*)pdst) - pdst_top);
@@ -212,13 +286,12 @@ public void Wrt_PStr(string src_str)
 }
 
 // ------------------------------------------------------------------------------------
-// ID.Text が自動的に書き込まれる
+// ID.Text が自動的に書き込まれる（ID_Text + 文字列長）
 // 最後の「/」以降のみが記録される
 public void Wrt_PFName(string src_str)
 {
 	int len_str = src_str.Length;
-	if (m_rem_ui16 < len_str + 2)  // +2 : ID_Text と 文字列長
-	{ this.THROW_Overflow_ERR(); }
+	if (m_rem_ui16 < len_str + 2) { this.Expand_WS_buf(); }
 			
 	unsafe 
 	{
@@ -247,19 +320,17 @@ public void Wrt_PFName(string src_str)
 }
 
 // ------------------------------------------------------------------------------------
-// ID +「ID_Text / path_dir」＋「ID_Text / path_dir の１つ上の親ディレクトリ（path_depth > 0 のとき）」
+// ID_DirFileList (param: path_depth) + ID_Text (path_dir)
+// old : ID +「ID_Text / path_dir」＋「ID_Text / path_dir の１つ上の親ディレクトリ（path_depth > 0 のとき）」
 public unsafe void Wrt_ID_with_DirDath(ID id, string path_dir)
 {
 	int len_to_wrt = path_dir.Length * 2 + 3;  // +3 : id_param + id_text + 文字数
-	if (m_rem_ui16 < len_to_wrt)
-	{
-		m_rem_ui16 += WS_Buf_Pool.Expand_MemBlk(ref m_ary_buf) / 2;
-	}
+	if (m_rem_ui16 < len_to_wrt) { this.Expand_WS_buf(); }
 
 	fixed (byte* pary_buf_top = m_ary_buf)
 	fixed (char* ppath_dir_top = path_dir)
 	{
-		// id 書き込みは、path depth が分かってから書き込む
+		// ID.DirFileList 書き込みは、path depth が分かってから書き込む
 		char* pdst = (char*)(pary_buf_top + m_idx_byte + 2);
 		*pdst = (char)ID.Text;
 		*(pdst + 1) = (char)path_dir.Length;
@@ -283,18 +354,6 @@ public unsafe void Wrt_ID_with_DirDath(ID id, string path_dir)
 			*pdst++ = chr;
 		}
 
-		// path_depth > 0 のとき、親ディレクトリの書き込み
-		if (cnt_depth > 0)
-		{
-			*pdst = (char)ID.Text;
-			*(pdst + 1) = (char)(psrc_at_slash_next_prev - ppath_dir_top);
-			*(uint*)(pdst + 2) = 0x002f_002e;  // 「./」の書き込み
-			pdst += 4;
-
-			psrc = ppath_dir_top + 2;  // 「./」を skip
-			while (psrc < psrc_at_slash_next_prev) { *pdst++ = *psrc++; }
-		}
-
 		// id と path_depth の書き込み
 		*(ushort*)(pary_buf_top + m_idx_byte) = (ushort)((cnt_depth << 8) + (ushort)ID.DirFileList);
 
@@ -306,10 +365,7 @@ public unsafe void Wrt_ID_with_DirDath(ID id, string path_dir)
 // ------------------------------------------------------------------------------------
 public unsafe void Wrt_Num_int(int num)  // ID + 4 bytes の書き込み（ui16 -> ３文字）
 {
-	if (m_rem_ui16 < 3)
-	{
-		m_rem_ui16 += WS_Buf_Pool.Expand_MemBlk(ref m_ary_buf) / 2;
-	}
+	if (m_rem_ui16 < 3) { this.Expand_WS_buf(); }
 
 	fixed (byte* pary_buf_top = m_ary_buf)
 	{
@@ -323,92 +379,156 @@ public unsafe void Wrt_Num_int(int num)  // ID + 4 bytes の書き込み（ui16 
 }
 
 // ------------------------------------------------------------------------------------
-public void THROW_Overflow_ERR()
+public void Copy_bytes_from(byte[] ary_buf_src)
 {
-	if (m_rem_ui16 >= 0)
+	if ((ary_buf_src.Length & 1) == 1)
 	{
-		// この場合は、バッファにエラー報告を書き入れる余地がまだある
-		m_ary_buf[m_idx_byte] = (byte)ID.ERR_OVERFLOW;
-		m_ary_buf[m_idx_byte + 1] = 0;
-		m_idx_byte += 2;
-		m_rem_ui16--;
+		// idx_byte が奇数である場合はエラーとする
+		throw new Exception("Write_WS_Buffer.Set_idx_byte() : ary_buf_src.Length が奇数となっています。");
 	}
 
-	if (m_rem_ui16 >= -1)
+	int len_src_u16 = (ary_buf_src.Length >> 1);
+	while (m_rem_ui16 < len_src_u16)  // ここでは、大きなサイズのコピーが発生しても大丈夫なようにしている
 	{
-		// この場合は、バッファに End を書き入れる余地がまだある
-		m_ary_buf[m_idx_byte] = (byte)ID.End;
-		m_ary_buf[m_idx_byte + 1] = 0;
-		m_idx_byte += 2;
-		m_rem_ui16--;
+		// Expand_MemBlk の戻り値は、増加された「バイト数」
+		m_rem_ui16 += (WS_Buf_Pool.Expand_MemBlk(ref m_ary_buf) >> 1);
+		if (m_idx_byte + (m_rem_ui16 << 1) != m_ary_buf.Length)  //// エラー顕在化
+		{ throw new Exception("Write_WS_Buffer.Copy_bytes_from() : m_idx_byte + m_rem_ui16 != m_ary_buf.Length"); }
 	}
 
-	throw new Exception("Write_WS_Buffer が不足しています。");
+	// m_rem_ui16 の値は先に決定しておく
+	m_rem_ui16 -= len_src_u16;
+
+	unsafe
+	{
+		fixed (byte* pdst_byte_top = m_ary_buf)
+		fixed (byte* psrc_byte_top = ary_buf_src)
+		{
+			ushort* pdst_u16 = (ushort*)(pdst_byte_top + m_idx_byte);
+			ushort* psrc_u16 = (ushort*)psrc_byte_top;
+
+			for (; len_src_u16 > 0; --len_src_u16)
+			{ *pdst_u16++ = *psrc_u16++; }
+
+			m_idx_byte = (int)(((byte*)pdst_u16) - pdst_byte_top);
+		}
+	}
 }
 
 // ------------------------------------------------------------------------------------
 const int EN_MAX_ERR_Text = 200;
 
-// エラーレポートと、ID.End を書き込んで例外を投げる
+// m_ary_buf に書き込まれる内容
+// ID_ERR_Report -> ID_Div -> ID_Text -> err_msg -> ID_Div -> ID_Text -> psrc からの EN_MAX_ERR_Text 文字数分の内容
 // err_msg は、クライアントと、サーバー側の StdOut に送られるメッセージ
-public unsafe void THROW_ERR(ushort* psrc, string err_msg)
+// psrc は MD ファイル側のポインタで fixed されている
+
+// 注意： バッファの拡張をする場合があるため、m_ary_buf は fixed されていてはならない
+public unsafe void CrtErrReport_to_WrtBuf_and_ThrowErr(ushort* psrc, string err_msg)
 {
-	if (m_rem_ui16 < EN_Margin_buf) { this.THROW_Overflow_ERR(); }
-
-	fixed (byte* pdst_top = m_ary_buf)
+	// +10 は念のためのマージン
+	int max_len_u16_to_wrt_buf = 1 + 1 + 2 + err_msg.Length + 1 + 2 + EN_MAX_ERR_Text + 10;
+	if (m_rem_ui16 < max_len_u16_to_wrt_buf)
 	{
-		ushort* pdst = (ushort*)(pdst_top + m_idx_byte);
-
-		// err_msg の埋め込み
+		// Expand_MemBlk の戻り値は、増加された「バイト数」
+		m_rem_ui16 += (WS_Buf_Pool.Expand_MemBlk(ref m_ary_buf) >> 1);
+		if (m_idx_byte + (m_rem_ui16 << 1) != m_ary_buf.Length)  //// エラー顕在化
+		{ throw new Exception(
+				"Write_WS_Buffer.CrtErrReport_to_WrtBuf_and_ThrowErr() : m_idx_byte + m_rem_ui16 != m_ary_buf.Length"); }
+	}
+	
+	unsafe
+	{
+		fixed (byte* pdst_top = m_ary_buf)
 		{
-			int len_to_wrt = err_msg.Length;
-			if (m_rem_ui16 < 4 + len_to_wrt) { len_to_wrt = m_rem_ui16 - 4; }
+			ushort* pdst = (ushort*)(pdst_top + m_idx_byte);
 
-			m_idx_byte += (4 + len_to_wrt) * 2;
-			m_rem_ui16 -= 4 + len_to_wrt;
-
-			*pdst = (ushort)ID.ERR_Report;
-			*(pdst + 1) = (ushort)ID.Div;
-			*(pdst + 2) = (ushort)ID.Text;
-			*(pdst + 3) = (ushort)len_to_wrt;
-			pdst += 4;
-			
-			fixed (char* pmsg_top = err_msg)
+			// err_msg の埋め込み
 			{
-				ushort* pmsg = (ushort*)pmsg_top;
-				for (; len_to_wrt > 0; --len_to_wrt)
-				{ *pdst++ = *pmsg++; }
+				int len_err_msg = err_msg.Length;
+
+				*pdst = (ushort)ID.ERR_Report;  // このブロックで８バイト
+				*(pdst + 1) = (ushort)ID.Div;
+				*(pdst + 2) = (ushort)ID.Text;
+				*(pdst + 3) = (ushort)len_err_msg;
+				pdst += 4;
+			
+				fixed (char* pmsg_top = err_msg)
+				{
+					ushort* pmsg = (ushort*)pmsg_top;
+					for (; len_err_msg > 0; --len_err_msg)
+					{ *pdst++ = *pmsg++; }
+				}
 			}
+
+			// エラーを特定しやすいように、クライアントに psrc からの文字列を送出する
+			// psrc は '\0' で終了していることに留意する
+			ushort* pTmnt_dst = pdst + EN_MAX_ERR_Text;
+
+			*pdst = (ushort)ID.Div;
+			*(pdst + 1) = (ushort)ID.Text;
+			ushort* ptr_at_pos_text_len = pdst + 2;
+			pdst += 3;
+
+			while (true)
+			{
+				ushort chr = *psrc++;
+				if (pdst == pTmnt_dst || chr == 0) { break; }
+/*
+				if (chr == Chr.CR) { *pdst++ = (ushort)ID.BR;  psrc++;  continue; }
+				if (chr == Chr.LF) { *pdst++ = (ushort)ID.BR;  continue; }
+*/
+				*pdst++ = chr;
+			}
+
+			*ptr_at_pos_text_len = (ushort)((pdst - ptr_at_pos_text_len) - 1);  // 文字数の書き込み
+
+			m_idx_byte = (int)(((byte*)pdst) - pdst_top);
+			m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
 		}
-
-		// psrc からの文字列の書き込み
-		if (m_rem_ui16 < 4) { this.THROW_Overflow_ERR(); }
-
-		// +3 : ID.Div、ID.Text、len_text
-		ushort* pTmnt_dst = pdst + Math.Min(EN_MAX_ERR_Text + 3, m_rem_ui16);
-
-		*pdst = (ushort)ID.Div;
-		*(pdst + 1) = (ushort)ID.Text;
-		ushort* ptr_at_pos_text_len = pdst + 2;
-
-		while (true)
-		{
-			ushort chr = *psrc++;
-			if (pdst == pTmnt_dst || chr == 0) { break; }
-
-			if (chr == Chr.CR) { *pdst++ = (ushort)ID.BR;  psrc++;  continue; }
-			if (chr == Chr.LF) { *pdst++ = (ushort)ID.BR;  continue; }
-
-			*pdst++ = chr;
-		}
-
-		*ptr_at_pos_text_len = (ushort)((pdst - ptr_at_pos_text_len) - 1);  // 文字数の書き込み
-		m_idx_byte = (int)(((byte*)pdst) - pdst_top);
-		m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
 	}
 
 	this.Wrt_ID_End();
 	throw new Exception(err_msg);
+}
+
+// ------------------------------------------------------------------------------------
+// １行分の文字数をカウントして、バッファを確保する。
+// 必要となる最大バッファサイズは、
+// 文字数＋３（先頭の ID_Text or ID_TR, ID_TD, ID_Text）＋１（` の未ペアがあった場合）
+// ＋２＊「| の個数（TD、ID_Text）」＋(Chr.PCS_Tab - 1)＊TABの個数
+public unsafe void SecureBuf_for1Line(ushort* psrc)
+{
+	ushort* psrc_top = psrc;
+	int pcs_add = 0;
+	while (true)
+	{
+		switch (*psrc)
+		{
+		case Chr.CR:
+		case Chr.LF:
+			goto LOOP_OUT;
+
+		case Chr.TAB:
+			pcs_add += (Chr.PCS_Tab - 1);
+			break;
+
+		case '|':
+			pcs_add += 2;
+			break;
+		}
+		psrc++;
+	}
+LOOP_OUT:
+	// 本当は +4 でいいが、余裕をみて +10 としている
+	int pcs_to_need = (int)(psrc - psrc_top) + 10 + pcs_add;
+
+	if (m_rem_ui16 < pcs_to_need)
+	{
+		m_rem_ui16 += (WS_Buf_Pool.Expand_MemBlk(ref m_ary_buf) >> 1);
+		if (m_idx_byte + (m_rem_ui16 << 1) != m_ary_buf.Length)  //// エラー顕在化
+		{ throw new Exception("Write_WS_Buffer.SecureBuf_for1Line() : m_idx_byte + m_rem_ui16 != m_ary_buf.Length"); }
+	}
 }
 
 // ------------------------------------------------------------------------------------
@@ -420,10 +540,9 @@ public unsafe ushort* Cosume_CodeLine(ushort* psrc)
 	if (*psrc == Chr.CR) { this.Wrt_ID(ID.BR);  return psrc + 2; }
 	if (*psrc == Chr.LF) { this.Wrt_ID(ID.BR);  return psrc + 1; }
 
-	if (m_rem_ui16 < EN_Margin_buf) { this.THROW_Overflow_ERR(); }
+	this.SecureBuf_for1Line(psrc);
 
 	// エラーのスローは、エラーが発生したところまで書き込んだ後に行うようにする
-	ID Err_ID = ID.Undefined;
 	string Err_msg = null;
 
 	// Text ブロックの書き込み
@@ -431,7 +550,7 @@ public unsafe ushort* Cosume_CodeLine(ushort* psrc)
 	fixed (byte* pdst_top = m_ary_buf)
 	{
 		ushort* pdst = (ushort*)(pdst_top + m_idx_byte);
-		ushort* pTmnt_dst = pdst + m_rem_ui16 - EN_Margin_buf;
+		ushort* DBG_pTmnt_dst = pdst + m_rem_ui16;  // エラー顕在化のため
 
 		*pdst = (ushort)ID.Text;
 		ushort* pdst_at_pos_text_len = pdst + 1;
@@ -439,12 +558,6 @@ public unsafe ushort* Cosume_CodeLine(ushort* psrc)
 
 		while (true)
 		{
-			if (pdst >= pTmnt_dst)
-			{
-				Err_ID = ID.ERR_OVERFLOW;
-				break;
-			}
-
 			ushort chr = *psrc++;
 			// 行末が来たら処理を終了する。ID.BR の処理は Lexer の方で行う
 			if (chr == Chr.CR) { psrc++;  break; }
@@ -460,13 +573,20 @@ public unsafe ushort* Cosume_CodeLine(ushort* psrc)
 		}
 
 		*pdst_at_pos_text_len = (ushort)((pdst - pdst_at_pos_text_len) - 1);  // 文字数の書き込み
-		m_idx_byte = (int)(((byte*)pdst) - pdst_top);
-		m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
+
+		if (pdst > DBG_pTmnt_dst)  // 発生することはないはずだけど
+		{
+			Err_msg = "Write_WS_Buffer.Cosume_CodeLine() : バッファオーバーフローが発生しました。";
+		}
+		else
+		{
+			m_idx_byte = (int)(((byte*)pdst) - pdst_top);
+			m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
+		}
 	}
 
-	if (Err_ID == ID.ERR_OVERFLOW) { this.THROW_Overflow_ERR(); }
 	// 今のところは、ERR_OVERFLOW 以外のエラーは起きないはず
-	if (Err_ID != ID.Undefined) { this.THROW_ERR(psrc, Err_msg); }
+	if (Err_msg != null) { this.CrtErrReport_to_WrtBuf_and_ThrowErr(psrc, Err_msg); }
 
 	// CodeBlk は必ず改行コードで終える
 	this.Wrt_ID(ID.BR);
@@ -482,19 +602,19 @@ public void Clear_Txt_flags() { m_Txt_flags = 0; }
 // 行末コード CR or LF に達したところでリターンする
 // Normal ブロック用（今後、大幅に加筆される予定あり）
 // 戻り値 : 行末記号の位置（CR or LF）
+// テーブルの生成時には、Consume_NormalLine() は特殊な動作を行う\ (--- の読み飛ばしなどを実装するため)
 public unsafe ushort* Consume_NormalLine(ushort* psrc)
 {
-	if (m_rem_ui16 < EN_Margin_buf) { this.THROW_Overflow_ERR(); }
+	this.SecureBuf_for1Line(psrc);
 
-		// エラーのスローは、エラーが発生したところまで書き込んだ後に行うようにする
-	ID Err_ID = ID.Undefined;
+	// エラーのスローは、エラーが発生したところまで書き込んだ後に行うようにする
 	string Err_msg = null;
 
 	// dest 側の fixed
 	fixed (byte* pdst_top = m_ary_buf)
 	{
 		ushort* pdst = (ushort*)(pdst_top + m_idx_byte);
-		ushort* pTmnt_dst = pdst + m_rem_ui16 - EN_Margin_buf;
+		ushort* DBG_pTmnt_dst = pdst + m_rem_ui16;  // エラー顕在化のため
 
 		// ptr_at_pos_text_len が null のときは、テキストセクションの処理外であると分かる
 		ushort* ptr_at_pos_text_len = null;
@@ -504,19 +624,66 @@ public unsafe ushort* Consume_NormalLine(ushort* psrc)
 		{
 			if (ptr_at_pos_text_len != null)
 			{
-				*ptr_at_pos_text_len = (ushort)(pdst - ptr_at_pos_text_len - 1);
+				ushort len_text = (ushort)(pdst - ptr_at_pos_text_len - 1);
+				if (len_text == 0)
+				{
+					pdst -= 2;
+				}
+				else
+				{
+					*ptr_at_pos_text_len = len_text;
+				}
 				ptr_at_pos_text_len = null;
 			}
 		}
 
-		while (true)  // 行末 or エラー発生時まで処理を進める
+		// -------------------------------------------------
+		// １文字目が '|' の場合、表であるものとして処理をする
+		bool b_is_table = false;
+//		ushort* ptr_last_vl = null;
+		if (*psrc == '|')
 		{
-			if (pdst >= pTmnt_dst)
+			b_is_table = true;
+
+			// psrc の最後の | は、Chr.LF にしておく
+			// また、「---」を見つけたら、m_idx_byte, m_rem_ui16 の両方とも変更せずに、psrc を次の行頭にして return する
+			ushort* ptr_last_vl = psrc++;  // psrc は「|」の次を指す
+			ushort* ptr = psrc;
+			while (true)
 			{
-				Err_ID = ID.ERR_OVERFLOW;
-				break;
+				switch (*ptr)
+				{
+				case Chr.CR:
+				case Chr.LF:
+					goto LOOP_OUT;
+
+				case '|':
+					ptr_last_vl = ptr;
+					break;
+
+				case '-':
+					if (*(uint*)(ptr + 1) == 0x002d_002d)  //「---」であった場合、その行の読み込みは実行しない
+					{
+						ptr += 3;
+						while(*ptr++ != Chr.LF) {}
+						return ptr;  // ここでリターンしてしまう
+					}
+					break;
+				}
+				ptr++;
 			}
 
+		LOOP_OUT:
+			*ptr_last_vl = Chr.LF;
+
+			*pdst = (ushort)ID.TR;
+			*(pdst + 1) = (ushort)ID.TD;
+			pdst += 2;
+		}
+		// -------------------------------------------------
+
+		while (true)  // 行末 or エラー発生時まで処理を進める
+		{
 			ushort chr = *psrc;
 
 			// 行末処理で、改行が必要かどうかの判断を行うため、psrc は最初の行末コードの部分でリターンさせる
@@ -589,6 +756,15 @@ public unsafe ushort* Consume_NormalLine(ushort* psrc)
 					m_Txt_flags ^= (byte)ID.Txt_Code;
 					psrc++;
 					continue;
+
+				case '|':
+					if (b_is_table == false) { break; }
+					// TD の処理
+					CLOSE_TEXT_SEC_IF_OPEN();
+					*pdst++ = (ushort)ID.TD;
+
+					psrc++;
+					continue;
 				} // switch
 			} // else
 
@@ -616,35 +792,54 @@ public unsafe ushort* Consume_NormalLine(ushort* psrc)
 		// text セクションが 0 文字となることもある（エラー時など）
 		CLOSE_TEXT_SEC_IF_OPEN();
 
-		m_idx_byte = (int)(((byte*)pdst) - pdst_top);
-		m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
+		// 表作成時に書き換えていたものを、元に戻す（行末処理の改行と間違えないようにするため）
+		if (b_is_table == true)
+		{
+//			*ptr_last_vl = '|';
+//			if (psrc != ptr_last_vl)  // エラー顕在化
+//			{ Err_msg = "Write_WS_Buffer.Consume_NormalLine() : 表の作成中に、psrc != ptr_last_vl が発生しました。"; }
+
+			// テーブルの生成時には、戻り値には次の行頭を渡す
+			psrc++;  // psrc は、元「|」であったところの LF の次となる
+			while (*psrc++ != Chr.LF) {}
+		}
+
+		if (pdst > DBG_pTmnt_dst)  // 発生することはないはずだけど
+		{
+			Err_msg = "Write_WS_Buffer.Consume_NormalLine() : バッファオーバーフローが発生しました。";
+		}
+		else
+		{
+			m_idx_byte = (int)(((byte*)pdst) - pdst_top);
+			m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
+		}
 	}
 
-	if (Err_ID == ID.ERR_OVERFLOW) { this.THROW_Overflow_ERR(); }
-	// 今のところは、ERR_OVERFLOW 以外のエラーは起きないはず
-	if (Err_ID != ID.Undefined) { this.THROW_ERR(psrc, Err_msg); }
-
+	// 今のところ、ERR_OVERFLOW 以外のエラーは起きない
+	if (Err_msg != null) { this.CrtErrReport_to_WrtBuf_and_ThrowErr(psrc, Err_msg); }
 	return psrc;
 }
 
 // ------------------------------------------------------------------------------------
 // [text] の結合、[text] の行末の空白削除
 // エラーがあった場合、エラー事由が返される。（エラーがなければ null が返される）
-public unsafe void Simplify_Buf()
+public unsafe void Simplify_Buf(int idx_byte_lex_top)
 {
 	try
 	{
-		fixed (byte* buf_top_byte = m_ary_buf)
+		fixed (byte* ary_buf_top = m_ary_buf)
 		{
-			Text_section_compaction(buf_top_byte);
+			Text_section_compaction(idx_byte_lex_top);
+
+//			DBG_WS_Buffer.Show_WS_buf(MainForm.ms_RBox_stdout, m_ary_buf, m_idx_byte);
 
 			// -------------------------------------------------------
 			// その他のコンパクションをする場合は、この位置で行うこと
 
 			// -------------------------------------------------------
-			// FLG_no_BR_above の処理
-			ushort* psrc = (ushort*)buf_top_byte;
-			ushort* pTmnt_src = (ushort*)(buf_top_byte + m_idx_byte);
+			// FLG_no_BR_above の処理（データのバイト数は変改しない）
+			ushort* psrc = (ushort*)(ary_buf_top + idx_byte_lex_top);
+			ushort* pTmnt_src = (ushort*)(ary_buf_top + m_idx_byte);
 			bool b_next_is_no_BR_above = false;
 
 			bool b_in_QuoteBlk = false;
@@ -693,6 +888,8 @@ public unsafe void Simplify_Buf()
 			} // while
 		} // fixed
 
+//		DBG_WS_Buffer.Show_WS_buf(MainForm.ms_RBox_stdout, m_ary_buf, m_idx_byte);
+
 	}
 	catch(Exception ex)
 	{
@@ -703,111 +900,138 @@ public unsafe void Simplify_Buf()
 }
 
 // ------------------------------------------------------------------------------------
-public unsafe void Text_section_compaction(byte* buf_top_byte)
+public unsafe void Text_section_compaction(int idx_byte_lex_top)
 {
-	ushort* psrc = (ushort*)buf_top_byte;
-	ushort* pTmnt_src = (ushort*)(buf_top_byte + m_idx_byte);
-	ushort* pdst = (ushort*)buf_top_byte;
-
-	// ptr_at_pos_text_len != null であるときは、text セクションが閉じていない、ということ
-	ushort* ptr_at_pos_text_len = null;
-	// 最初の text セクションが開かれるときに、値が設定される（param は常に 0）
-	ushort cur_ID_Txt_with_flags = 0;
-
-	void CLOSE_TEXT_SEC()
+	fixed (byte* ary_buf_top = m_ary_buf)
 	{
-		ushort text_len = (ushort)(pdst - ptr_at_pos_text_len - 1);
-		if (text_len == 0)
-		{
-			pdst = ptr_at_pos_text_len - 1;
-		}
-		else if (text_len > 0xff)
-		{
-			*ptr_at_pos_text_len = text_len;
-		}
-		else  // text_len <= 255 のときの処理
-		{
-			*(ptr_at_pos_text_len - 1) = (ushort)((text_len << 8) + cur_ID_Txt_with_flags);
-			ushort* p_org = ptr_at_pos_text_len + 1;
-			for (; text_len > 0; --text_len)
-			{ *(p_org - 1) = *p_org++; }
+		ushort* psrc = (ushort*)(ary_buf_top + idx_byte_lex_top);
+		ushort* pTmnt_src = (ushort*)(ary_buf_top + m_idx_byte);
+		ushort* pdst = psrc;
 
-			pdst--;
-		}
-		ptr_at_pos_text_len = null;
-	}
+		// ptr_at_pos_text_len != null であるときは、text セクションが閉じていない、ということ
+		ushort* ptr_at_pos_text_len = null;
+		// 最初の text セクションが開かれるときに、値が設定される（param は常に 0）
+		ushort cur_ID_Txt_with_flags = 0;
 
-	// ---------------------------------------------------------
-	// compaction 開始
-	while (psrc < pTmnt_src)
-	{
-		ushort chr = *psrc++;
-		if (((ID)chr).IsText())
+		void CLOSE_TEXT_SEC()
 		{
-			if (ptr_at_pos_text_len == null)
+			ushort text_len = (ushort)(pdst - ptr_at_pos_text_len - 1);
+			if (text_len == 0)
 			{
-				// text セクションを開く
-				*pdst = chr;  // Txt_flags もそのまま書き込む（param は必ず 0）
-				cur_ID_Txt_with_flags = chr;
-				ptr_at_pos_text_len = pdst + 1;
-				pdst += 2;
+				pdst = ptr_at_pos_text_len - 1;
 			}
-			else
+			else if (text_len > 0xff)
 			{
-				// text セクションが連続するときの処理（Txt_flags に変更がないかを確認）
-				if (chr != cur_ID_Txt_with_flags)
-				{
-					// Txt_flags に変更があった場合の処理
-					CLOSE_TEXT_SEC();
+				*ptr_at_pos_text_len = text_len;
+			}
+			else  // text_len <= 255 のときの処理
+			{
+				*(ptr_at_pos_text_len - 1) = (ushort)((text_len << 8) + cur_ID_Txt_with_flags);
+				ushort* p_org = ptr_at_pos_text_len + 1;
+				for (; text_len > 0; --text_len)
+				{ *(p_org - 1) = *p_org++; }
 
-					// text セクションを新しく開く
+				pdst--;
+			}
+			ptr_at_pos_text_len = null;
+		}
+
+		// ---------------------------------------------------------
+		// compaction 開始
+		ID id_prev = ID.Undefined;
+		while (psrc < pTmnt_src)
+		{
+			ushort chr = *psrc++;
+
+			if (((ID)chr).IsText())
+			{
+				if (ptr_at_pos_text_len == null)
+				{
+					// text セクションを開く
 					*pdst = chr;  // Txt_flags もそのまま書き込む（param は必ず 0）
 					cur_ID_Txt_with_flags = chr;
 					ptr_at_pos_text_len = pdst + 1;
 					pdst += 2;
 				}
-			}
-
-			// テキストのコピー
-			ushort* pdst_textbody_top = pdst;
-			for (int i = *psrc++; i > 0; --i)
-			{ *pdst++ = *psrc++; }
-		}
-		else  // text セクションでない場合の処理（End, ERR, BR, Div）
-		{
-			// text セクションが開いていた場合、それを閉じる
-			if (ptr_at_pos_text_len != null)
-			{
-				//「装飾がない」行末の空白文字を削除
-				if ((byte)*(ptr_at_pos_text_len - 1) == (byte)ID.Text)
+				else
 				{
-					for (long i = pdst - ptr_at_pos_text_len -1; i > 0; --i)  // text_len == 0 のときを考慮
+					// text セクションが連続するときの処理（Txt_flags に変更がないかを確認）
+					if (chr != cur_ID_Txt_with_flags)
 					{
-						ushort c = *(pdst - 1);
-						if (c == Chr.SP || c == Chr.SP_ZEN) { pdst--; continue; }
+						// Txt_flags に変更があった場合の処理
+						CLOSE_TEXT_SEC();
 
-						break;
+						// text セクションを新しく開く
+						*pdst = chr;  // Txt_flags もそのまま書き込む（param は必ず 0）
+						cur_ID_Txt_with_flags = chr;
+						ptr_at_pos_text_len = pdst + 1;
+						pdst += 2;
 					}
 				}
 
-				CLOSE_TEXT_SEC();
+				// Text セクションの１つ前が ID_TD であったら、セクションの行頭にある空白を削除する
+				if (id_prev == ID.TD)
+				{
+					int rem_txt = *psrc++;
+					while (true)
+					{
+						if (rem_txt == 0) { goto FINISHD_TEXT_COPY; }
+						if (*psrc != Chr.SP) { break; }
+						psrc++;
+						rem_txt--;
+					}
+					for (; rem_txt > 0; --rem_txt)
+					{ *pdst++ = *psrc++; }
+				}
+				else
+				{
+					// テキスト全部のコピー
+					for (int i = *psrc++; i > 0; --i)
+					{ *pdst++ = *psrc++; }
+				}
+
+			FINISHD_TEXT_COPY:
+				id_prev = ID.Text;
 			}
+			else  // text セクションでない場合の処理（End, ERR, BR, Div, TR, TD）
+			{
+				// text セクションが開いていた場合、それを閉じる
+				if (ptr_at_pos_text_len != null)
+				{
+					//「装飾がない」行末の空白文字を削除
+					if ((byte)*(ptr_at_pos_text_len - 1) == (byte)ID.Text)
+					{
+						for (long i = pdst - ptr_at_pos_text_len -1; i > 0; --i)  // text_len == 0 のときを考慮
+						{
+							if (*(pdst - 1) == Chr.SP) { pdst--; continue; }
 
-			*pdst++ = chr;  // chr は ID.Txt を持たない
-		}
-	}  // while
+//							ushort c = *(pdst - 1);
+//							if (c == Chr.SP || c == Chr.SP_ZEN) { pdst--; continue; }
 
-	if (psrc > pTmnt_src)
-	{ throw new Exception("!!! Text_section_compaction() : psrc > pTmnt_src となりました。"); }
+							break;
+						}
+					}
 
-	int chr_end_id = *(psrc - 1) & 0xff;
-	if (chr_end_id != (int)ID.End)
-	{ throw new Exception($"!!! Text_section_compaction() : chr_end = {chr_end_id.ToString()}"); }
+					CLOSE_TEXT_SEC();
+				}
 
-	// -------------------------------------------------------
-	// 終了処理 : m_idx_byte, m_rem_ui16 を再設定する
-	m_idx_byte = (int)(((byte*)pdst) - buf_top_byte);
-	m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
+				*pdst++ = chr;  // chr は ID.Txt を持たない
+				id_prev = (ID)chr;
+			}
+		}  // while
+
+		if (psrc > pTmnt_src)
+		{ throw new Exception("!!! Text_section_compaction() : psrc > pTmnt_src となりました。"); }
+
+		int chr_end_id = *(psrc - 1) & 0xff;
+		if (chr_end_id != (int)ID.End)
+		{ throw new Exception($"!!! Text_section_compaction() : chr_end = {chr_end_id.ToString()}"); }
+
+		// -------------------------------------------------------
+		// 終了処理 : m_idx_byte, m_rem_ui16 を再設定する
+		m_idx_byte = (int)(((byte*)pdst) - ary_buf_top);
+		m_rem_ui16 = (m_ary_buf.Length - m_idx_byte) >> 1;
+	}
 }
 
 
