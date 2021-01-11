@@ -23,7 +23,23 @@ const g_FileLister = new function() {
 
 	// -----------------------------------------------------------------------
 	this.Set_e_panel = (e_div) => {
-		m_e_panel = e_div;  // パネル全体に処理をすることを想定している（現在は未使用）
+		m_e_panel = e_div;
+		m_e_panel.classList.add('FileList_pnl');
+		
+		const m_e_btn_hide_pnl = m_e_panel.Add_DivBtn('リスト非表示');
+		m_e_btn_hide_pnl.style.float = 'right';
+		m_e_btn_hide_pnl.onclick = () => {
+			m_e_panel.style.display = 'none';
+			m_e_btn_show_pnl.style.display = 'block';
+		};
+
+		const m_e_btn_show_pnl = g_e_body.Add_DivBtn('リスト表示');
+		m_e_btn_show_pnl.classList.add('btn_float', 'FileList_show_btn');
+		m_e_btn_show_pnl.style.display = 'none';  // 初期状態は、リスト「表示」
+		m_e_btn_show_pnl.onclick = () => {
+			m_e_panel.style.display = 'block';
+			m_e_btn_show_pnl.style.display = 'none';
+		};
 
 		// -----------------------------------------------
 		// アクセス可能なメソッドは Add() と Show() のみ
@@ -199,11 +215,11 @@ const g_FileLister = new function() {
 					// 選択中のアイテムがあったら、それを非選択にする。
 					const e_div_file_selected_in_showing = dir_info[IDX_e_div_file_selected];
 					if (e_div_file_selected_in_showing != null) {
-						e_div_file_selected_in_showing.classList.remove('File_li_sel');
+						e_div_file_selected_in_showing.firstElementChild.classList.remove('File_li_sel');
 						dir_info[IDX_e_div_file_selected] = null;
 					}
 
-					e_div_files_showing.style.display = 'flex';
+					e_div_files_showing.style.display = 'block';
 					m_e_div_files_showed = e_div_files_showing;
 				}
 			};
@@ -306,8 +322,8 @@ const g_FileLister = new function() {
 
 		if (pcs_files > 0) {
 			const e_div_files = document.createElement('div');
-			e_div_files.style.display = 'flex';
-			e_div_files.style.flexWrap = 'wrap';
+//			e_div_files.style.display = 'flex';
+//			e_div_files.style.flexWrap = 'wrap';
 
 			for (let i = pcs_files; i > 0; --i) {
 				if (g_TStream_Reader.Consume_NextID() != ID_Text) {
@@ -315,9 +331,12 @@ const g_FileLister = new function() {
 					return;
 				}
 				const str_file_name = g_TStream_Reader.Get_text_cur();
-				const e_div_file_item = e_div_files.Add_DivTxt(str_file_name);
-				e_div_file_item.classList.add('File_li');
-				e_div_file_item.onclick = OnClk_FileName.bind(e_div_file_item, dir_info, str_file_name);
+				const e_div_file_item = e_div_files.Add_Div();
+				const e_div_file_item_inline = e_div_file_item.Add_DivTxt(str_file_name);
+				e_div_file_item_inline.classList.add('File_li');
+				e_div_file_item_inline.style.lineHeight = '1rem';
+				e_div_file_item_inline.style.display = 'inline-block';
+				e_div_file_item_inline.onclick = OnClk_FileName.bind(e_div_file_item, dir_info, str_file_name);
 			}
 			dir_info.push(e_div_files);
 		}
@@ -543,16 +562,17 @@ const g_FileLister = new function() {
 	// file_name には「.md」が付加されていないことに注意
 	const OnClk_FileName = function(dir_info, file_name) {
 		const e_div_sel = dir_info[IDX_e_div_file_selected];
-		if (this == e_div_sel) { return; }
-
-		// 選択状態の変更
-		if (e_div_sel != null) {
-			e_div_sel.classList.remove('File_li_sel');
+		if (this != e_div_sel)
+		{
+			// 選択状態の変更	
+			if (e_div_sel != null) {
+				e_div_sel.firstElementChild.classList.remove('File_li_sel');
+			}
+			this.firstElementChild.classList.add('File_li_sel');
+			dir_info[IDX_e_div_file_selected] = this;
 		}
-		this.classList.add('File_li_sel');
-		dir_info[IDX_e_div_file_selected] = this;
 		
-		// MD ファイルの送信要求
+		// MD ファイルの送信要求（既に選択されているファイルが押されたとしても、リロードとして処理をする）
 		const str_dir_path = dir_info[IDX_str_dir_path];
 		g_Write_Buf.Flush();
 		g_Write_Buf.Wrt_ID(ID_MD_file);
