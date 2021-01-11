@@ -225,7 +225,7 @@ const g_pnl_SvrConnect = new function() {
 	let mb_show_URL_pnl = true;
 	
 	const m_e_panel = g_e_body.Add_Div();
-//	m_e_panel.style.margin = '5px 0';
+	m_e_panel.style.marginLeft = '1.5rem';
 	m_e_panel.style.display = 'flex';
 	
 	const m_e_pnl_URL = m_e_panel.Add_Div();
@@ -286,7 +286,18 @@ const g_pnl_SvrConnect = new function() {
 };
 
 const g_pnl_Log = new function() {
+	const m_e_btn_show_log = g_e_body.Add_Div();
+	m_e_btn_show_log.classList.add('btn_float', 'Log_show_btn');
+	m_e_btn_show_log.textContent = 'ログ表示';
+//	m_e_btn_show_log.style.display = 'none';
+	m_e_btn_show_log.onclick = () => {
+		m_e_panel.style.display = 'block';
+		m_e_btn_show_log.style.display = 'none';
+	}
+	
 	const m_e_panel = g_e_body.Add_Div();
+	m_e_panel.classList.add('Log_pnl');
+	m_e_panel.style.display = 'none';  // 初期状態では、ログは非表示にしておく
 
 	const e_stg = m_e_panel.Add_FlexStg();
 	e_stg.style.margin = '5px';
@@ -297,8 +308,17 @@ const g_pnl_Log = new function() {
 
 	const m_e_btn_clear_log = e_stg.Add_DivBtn('ログ クリア');
 	m_e_btn_clear_log.style.fontSize = '0.7rem'
+	m_e_btn_clear_log.style.marginRight = '1rem';
 	m_e_btn_clear_log.onclick = () => { e_txt_area.value = ''; };
 
+	const m_e_btn_hide_log = e_stg.Add_DivBtn('ログ非表示');
+	m_e_btn_hide_log.style.fontSize = '0.7rem'
+	m_e_btn_hide_log.onclick = () => {
+		m_e_panel.style.display = 'none';
+		m_e_btn_show_log.style.display = 'block';
+	}
+
+	// --------------------------------------------------------------
 	const e_txt_area = m_e_panel.Add_TxtArea();
 	e_txt_area.classList.add('Log_text_area');
 
@@ -318,3 +338,4 @@ g_FileLister.Set_e_panel(g_e_body.Add_Div());
 const g_e_DomTreeArea = g_e_body.Add_Div();
 
 g_GUI.Update(STT_Null);
+
