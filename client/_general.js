@@ -64,6 +64,7 @@ Element.prototype.Add_BR = function() {
 Element.prototype.Add_FlexStg = function() {
 	const e_div = document.createElement('div');
 	e_div.style.display = 'flex';
+	// 'wrap'：flexbox が複数行に折返しとなる（単一行にしたい場合はこの指定を外すこと）
 	e_div.style.flexWrap = 'wrap';
 	this.appendChild(e_div);
 	return e_div;
@@ -74,5 +75,4 @@ Element.prototype.Add_FlexStg = function() {
 Element.prototype.Remove_All = function () {
 	// TODO: 単に textContent をクリアするだけで良かったはず？？後で調べること。
 	while (this.firstChild) { this.removeChild(this.firstChild); }
-	return this;
 };
