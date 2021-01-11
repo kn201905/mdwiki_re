@@ -2,16 +2,19 @@
 
 const g_DomTree = new function() {
 	let m_cur_div;
-
 	let mb_QuoteBlk;
-	let mb_idx_DivBlk;
+	
+	let mb_is_in_Table;
+	let m_e_Table_cur;
+	let m_e_Table_TR_cur;
+	
+	let m_idx_DivBlk;
 
 	let e_oframe_div_creating;
 	
 	// ID_Lexed_MD を検知した後の、g_TStream_Reader を用いて dom_tree を生成する
 	this.BuildTree = () => {
-		e_oframe_div_creating = document.createElement('div');;
-		
+		e_oframe_div_creating = document.createElement('div');
 		e_oframe_div_creating.classList.add('DomTree');
 		{
 			const e_top_dom_tree = e_oframe_div_creating.Add_Div();
@@ -21,8 +24,12 @@ const g_DomTree = new function() {
 
 		m_cur_div = null;
 		mb_QuoteBlk = false;
-
-		mb_idx_DivBlk = 0;
+		
+		mb_is_in_Table = false;
+		m_e_Table_cur = null;  // エラー顕在化
+		m_e_Table_TR_cur = null;  // エラー顕在化
+		
+		m_idx_DivBlk = 0;
 
 		while (true) {
 			const id = g_TStream_Reader.Consume_NextID();
@@ -30,7 +37,7 @@ const g_DomTree = new function() {
 
 			if (id & ID_Text)
 			{
-				const e_new = m_cur_div.Add_Element(null);
+				const e_new = m_cur_div.Add_Element('span');
 				e_new.textContent = g_TStream_Reader.Get_text_cur();
 
 				if (id & TxtFLG_Bold) { e_new.style.fontWeight = 'bold'; }
@@ -42,12 +49,12 @@ const g_DomTree = new function() {
 
 			if (id & ID_Div)
 			{
-				mb_idx_DivBlk++;
+				m_idx_DivBlk++;
 				if (Build_DivBlk(id) == true) {
 					continue;
 				}
 				
-				console.log("+++ ERR -> idx_DivBlk : " + mb_idx_DivBlk.toString());
+				console.log("+++ ERR -> idx_DivBlk : " + m_idx_DivBlk.toString());
 				return e_oframe_div_creating;  // ここで BuildTree() を打ち切る
 			}
 
@@ -69,6 +76,34 @@ const g_DomTree = new function() {
 				e_HLine.classList.add('HLine');
 				m_cur_div = null;  // エラー顕在化
 				continue;
+				
+				
+			case ID_Table:
+				mb_is_in_Table = !mb_is_in_Table;
+				if (mb_is_in_Table == true) {					
+					// テーブル作成に入る処理
+					const e_div_Table = e_oframe_div_creating.Add_Div();
+					e_div_Table.style.marginTop = '1rem';
+					m_e_Table_cur = e_div_Table.Add_Element('table');
+					m_e_Table_cur.border = '1';
+					m_e_Table_cur.style.borderCollapse = 'collapse';
+				}
+				else {
+					// テーブル作成から出る処理
+					m_e_Table_cur = null;  // エラー顕在化
+					m_e_Table_TR_cur = null;  // エラー顕在化
+				}
+				continue;
+				
+			case ID_TR:
+				m_e_Table_TR_cur = m_e_Table_cur.insertRow(-1);
+				continue;
+				
+			case ID_TD:
+				m_cur_div = m_e_Table_TR_cur.insertCell(-1);
+				m_cur_div.style.padding = '3px 8px';
+				continue;
+				
 
 			// -------------------------------------------------------------------
 			case ID_ERR_OVERFLOW:
